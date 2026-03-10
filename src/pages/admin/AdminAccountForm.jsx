@@ -14,13 +14,20 @@ import './AdminAccountForm.css';
 const RANKS = ['', 'Sắt', 'Đồng', 'Bạc', 'Vàng', 'Bạch kim', 'Kim cương', 'Cao thủ', 'Thách đấu', 'Radiant', 'Immortal'];
 
 const AdminAccountForm = () => {
-  const { gameTypeNames: GAME_TYPES } = useGameTypes();
+  const { gameTypeNames: dynamicGameTypes, loading: gameTypesLoading } = useGameTypes();
+  // Đảm bảo gameType hiện tại luôn có trong list (tránh bị reset khi hook chưa load xong)
+  const GAME_TYPES = React.useMemo(() => {
+    if (form.gameType && !dynamicGameTypes.includes(form.gameType)) {
+      return [...dynamicGameTypes, form.gameType];
+    }
+    return dynamicGameTypes;
+  }, [dynamicGameTypes, form.gameType]);
   const { id } = useParams();
   const navigate = useNavigate();
   const isEdit = !!id;
 
   const [form, setForm] = useState({
-    title: '', gameType: 'LMHT', rank: '', price: '',
+    title: '', gameType: '', rank: '', price: '',
     originalPrice: '', description: '', status: 'available', featured: false,
     loginUsername: '', loginPassword: '', loginEmail: '', loginNote: '',
   });
@@ -40,7 +47,7 @@ const AdminAccountForm = () => {
     if (snap.exists()) {
       const data = snap.data();
       setForm({
-        title: data.title || '', gameType: data.gameType || 'LMHT',
+        title: data.title || '', gameType: data.gameType || '',
         rank: data.rank || '', price: data.price || '',
         originalPrice: data.originalPrice || '', description: data.description || '',
         status: data.status || 'available', featured: data.featured || false,
@@ -188,6 +195,7 @@ const AdminAccountForm = () => {
                 <div className="form-group">
                   <label className="form-label">Loại game *</label>
                   <select name="gameType" value={form.gameType} onChange={handleChange} className="form-select">
+                    {!form.gameType && <option value="">-- Chọn loại game --</option>}
                     {GAME_TYPES.map(g => <option key={g} value={g}>{g}</option>)}
                   </select>
                 </div>

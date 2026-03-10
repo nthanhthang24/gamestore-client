@@ -8,6 +8,7 @@ import { Filter, SlidersHorizontal, Search, ChevronDown, X } from 'lucide-react'
 import toast from 'react-hot-toast';
 import './ShopPage.css';
 import { useFlashSale } from '../../hooks/useFlashSale';
+import { useGameTypes } from '../../hooks/useGameTypes';
 import { Flame } from 'lucide-react';
 
 // GAME_TYPES loaded dynamically from Firestore via useGameTypes hook
