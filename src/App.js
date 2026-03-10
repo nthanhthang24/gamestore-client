@@ -175,6 +175,19 @@ const AdminOrdersPage = () => {
                           ) : null)}
                         </div>
                         {item.loginNote && <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 8 }}>📝 {item.loginNote}</div>}
+                        {item.attachmentUrl && (
+                          <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>📎 File đính kèm</div>
+                            <a
+                              href={item.attachmentUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{ display:'inline-flex', alignItems:'center', gap:6, fontSize:12, color:'var(--accent)', textDecoration:'none', padding:'5px 12px', border:'1px solid rgba(0,212,255,0.3)', borderRadius:6, background:'rgba(0,212,255,0.07)', fontWeight:600 }}
+                            >
+                              ⬇️ {item.attachmentName || 'Tải file đính kèm'}
+                            </a>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -517,6 +530,15 @@ const UserOrdersPage = () => {
                           </div>
                           {item.loginEmail && <div style={{ gridColumn: '1/-1' }}><span style={{ color: 'var(--text-muted)', fontSize: 11 }}>Email:</span><br/><strong style={{ fontFamily: 'monospace' }}>{item.loginEmail}</strong></div>}
                           {item.loginNote && <div style={{ gridColumn: '1/-1' }}><span style={{ color: 'var(--text-muted)', fontSize: 11 }}>Ghi chú:</span><br/><span style={{ color: 'var(--text-secondary)' }}>{item.loginNote}</span></div>}
+                          {item.attachmentUrl && (
+                            <div style={{ gridColumn: '1/-1', marginTop: 4 }}>
+                              <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>File đính kèm:</span><br/>
+                              <a href={item.attachmentUrl} target="_blank" rel="noreferrer"
+                                style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:12, color:'var(--accent)', textDecoration:'none', marginTop:4, padding:'3px 10px', border:'1px solid rgba(0,212,255,0.3)', borderRadius:5, background:'rgba(0,212,255,0.07)' }}>
+                                ⬇️ {item.attachmentName || 'Tải file'}
+                              </a>
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
