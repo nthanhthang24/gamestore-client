@@ -159,33 +159,45 @@ const AdminOrdersPage = () => {
                         <span style={{ fontWeight: 600 }}>{item.title} <span className="badge badge-accent" style={{ fontSize: 10 }}>{item.gameType}</span></span>
                         <span style={{ fontWeight: 700, color: 'var(--gold)' }}>{item.price?.toLocaleString('vi-VN')}đ</span>
                       </div>
-                      <div style={{ background: 'rgba(0,212,255,0.06)', border: '1px solid rgba(0,212,255,0.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>
-                        <div style={{ color: 'var(--accent)', fontWeight: 700, marginBottom: 8, fontSize: 11, textTransform: 'uppercase' }}>🔑 Thông tin đăng nhập</div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr auto', gap: 6, alignItems: 'center' }}>
-                          {[
-                            ['Username', item.loginUsername],
-                            ['Password', item.loginPassword],
-                            ...(item.loginEmail ? [['Email', item.loginEmail]] : []),
-                          ].map(([lbl, val]) => val ? (
-                            <React.Fragment key={lbl}>
-                              <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>{lbl}:</span>
-                              <span style={{ fontFamily: 'monospace', fontWeight: 600, color: lbl === 'Password' ? 'var(--accent)' : 'inherit' }}>{val}</span>
-                              <button onClick={() => navigator.clipboard.writeText(val)} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 4, padding: '2px 8px', cursor: 'pointer', fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Copy</button>
-                            </React.Fragment>
-                          ) : null)}
-                        </div>
-                        {item.loginNote && <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 8 }}>📝 {item.loginNote}</div>}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {/* Credentials block — chỉ hiện khi có loginUsername */}
+                        {item.loginUsername && (
+                          <div style={{ background: 'rgba(0,212,255,0.06)', border: '1px solid rgba(0,212,255,0.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>
+                            <div style={{ color: 'var(--accent)', fontWeight: 700, marginBottom: 8, fontSize: 11, textTransform: 'uppercase' }}>🔑 Thông tin đăng nhập</div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr auto', gap: 6, alignItems: 'center' }}>
+                              {[
+                                ['Username', item.loginUsername],
+                                ['Password', item.loginPassword],
+                                ...(item.loginEmail ? [['Email', item.loginEmail]] : []),
+                              ].map(([lbl, val]) => val ? (
+                                <React.Fragment key={lbl}>
+                                  <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>{lbl}:</span>
+                                  <span style={{ fontFamily: 'monospace', fontWeight: 600, color: lbl === 'Password' ? 'var(--accent)' : 'inherit' }}>{val}</span>
+                                  <button onClick={() => navigator.clipboard.writeText(val)} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 4, padding: '2px 8px', cursor: 'pointer', fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Copy</button>
+                                </React.Fragment>
+                              ) : null)}
+                            </div>
+                            {item.loginNote && <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 8 }}>📝 {item.loginNote}</div>}
+                          </div>
+                        )}
+                        {/* Attachment download — LUÔN hiện nếu có file, độc lập với loginUsername */}
                         {item.attachmentUrl && (
-                          <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>📎 File đính kèm</div>
+                          <div style={{ background: 'rgba(46,213,115,0.07)', border: '1px solid rgba(46,213,115,0.25)', borderRadius: 6, padding: '10px 14px' }}>
+                            <div style={{ fontSize: 11, color: '#2ed573', fontWeight: 700, textTransform: 'uppercase', marginBottom: 8 }}>📎 File thông tin tài khoản</div>
                             <a
                               href={item.attachmentUrl}
                               target="_blank"
                               rel="noreferrer"
-                              style={{ display:'inline-flex', alignItems:'center', gap:6, fontSize:12, color:'var(--accent)', textDecoration:'none', padding:'5px 12px', border:'1px solid rgba(0,212,255,0.3)', borderRadius:6, background:'rgba(0,212,255,0.07)', fontWeight:600 }}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#fff', textDecoration: 'none', padding: '8px 16px', borderRadius: 6, background: 'rgba(46,213,115,0.2)', border: '1px solid rgba(46,213,115,0.4)', fontWeight: 600 }}
                             >
-                              ⬇️ {item.attachmentName || 'Tải file đính kèm'}
+                              ⬇️ Tải file: {item.attachmentName || 'thongtin.txt'}
                             </a>
+                          </div>
+                        )}
+                        {/* Fallback khi không có cả hai */}
+                        {!item.loginUsername && !item.attachmentUrl && (
+                          <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic', padding: '8px 0' }}>
+                            Thông tin đăng nhập sẽ được admin liên hệ qua email.
                           </div>
                         )}
                       </div>
@@ -513,9 +525,9 @@ const UserOrdersPage = () => {
                       </span>
                       <span style={{ fontWeight: 700, color: 'var(--gold)' }}>{item.price?.toLocaleString('vi-VN')}đ</span>
                     </div>
-                    {/* ✅ Thông tin đăng nhập tài khoản game */}
+                    {/* ✅ Thông tin đăng nhập — chỉ hiện khi có loginUsername */}
                     {item.loginUsername && (
-                      <div style={{ background: 'rgba(0,212,255,0.06)', border: '1px solid rgba(0,212,255,0.2)', borderRadius: 8, padding: '10px 14px', fontSize: '13px' }}>
+                      <div style={{ background: 'rgba(0,212,255,0.06)', border: '1px solid rgba(0,212,255,0.2)', borderRadius: 8, padding: '10px 14px', fontSize: '13px', marginTop: 6 }}>
                         <div style={{ color: 'var(--accent)', fontWeight: 600, marginBottom: 6, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                           🔑 Thông tin đăng nhập
                         </div>
@@ -530,20 +542,24 @@ const UserOrdersPage = () => {
                           </div>
                           {item.loginEmail && <div style={{ gridColumn: '1/-1' }}><span style={{ color: 'var(--text-muted)', fontSize: 11 }}>Email:</span><br/><strong style={{ fontFamily: 'monospace' }}>{item.loginEmail}</strong></div>}
                           {item.loginNote && <div style={{ gridColumn: '1/-1' }}><span style={{ color: 'var(--text-muted)', fontSize: 11 }}>Ghi chú:</span><br/><span style={{ color: 'var(--text-secondary)' }}>{item.loginNote}</span></div>}
-                          {item.attachmentUrl && (
-                            <div style={{ gridColumn: '1/-1', marginTop: 4 }}>
-                              <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>File đính kèm:</span><br/>
-                              <a href={item.attachmentUrl} target="_blank" rel="noreferrer"
-                                style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:12, color:'var(--accent)', textDecoration:'none', marginTop:4, padding:'3px 10px', border:'1px solid rgba(0,212,255,0.3)', borderRadius:5, background:'rgba(0,212,255,0.07)' }}>
-                                ⬇️ {item.attachmentName || 'Tải file'}
-                              </a>
-                            </div>
-                          )}
                         </div>
                       </div>
                     )}
-                    {!item.loginUsername && (
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                    {/* ✅ Attachment download — LUÔN hiện nếu có file, không phụ thuộc loginUsername */}
+                    {item.attachmentUrl && (
+                      <div style={{ background: 'rgba(46,213,115,0.07)', border: '1px solid rgba(46,213,115,0.25)', borderRadius: 8, padding: '10px 14px', marginTop: 6 }}>
+                        <div style={{ fontSize: '11px', color: '#2ed573', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>
+                          📎 File thông tin tài khoản
+                        </div>
+                        <a href={item.attachmentUrl} target="_blank" rel="noreferrer"
+                          style={{ display:'inline-flex', alignItems:'center', gap:6, fontSize:13, color:'#fff', textDecoration:'none', padding:'7px 16px', border:'1px solid rgba(46,213,115,0.4)', borderRadius:6, background:'rgba(46,213,115,0.2)', fontWeight:600 }}>
+                          ⬇️ Tải file: {item.attachmentName || 'thongtin.txt'}
+                        </a>
+                      </div>
+                    )}
+                    {/* Fallback */}
+                    {!item.loginUsername && !item.attachmentUrl && (
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic', marginTop: 6 }}>
                         Thông tin đăng nhập sẽ được admin liên hệ qua email.
                       </div>
                     )}
