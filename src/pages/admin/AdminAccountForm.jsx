@@ -14,14 +14,7 @@ import './AdminAccountForm.css';
 const RANKS = ['', 'Sắt', 'Đồng', 'Bạc', 'Vàng', 'Bạch kim', 'Kim cương', 'Cao thủ', 'Thách đấu', 'Radiant', 'Immortal'];
 
 const AdminAccountForm = () => {
-  const { gameTypeNames: dynamicGameTypes, loading: gameTypesLoading } = useGameTypes();
-  // Đảm bảo gameType hiện tại luôn có trong list (tránh bị reset khi hook chưa load xong)
-  const GAME_TYPES = React.useMemo(() => {
-    if (form.gameType && !dynamicGameTypes.includes(form.gameType)) {
-      return [...dynamicGameTypes, form.gameType];
-    }
-    return dynamicGameTypes;
-  }, [dynamicGameTypes, form.gameType]);
+  const { gameTypeNames: dynamicGameTypes } = useGameTypes();
   const { id } = useParams();
   const navigate = useNavigate();
   const isEdit = !!id;
@@ -31,6 +24,14 @@ const AdminAccountForm = () => {
     originalPrice: '', description: '', status: 'available', featured: false,
     loginUsername: '', loginPassword: '', loginEmail: '', loginNote: '',
   });
+
+  // Đảm bảo gameType hiện tại luôn có trong list (phải sau useState form)
+  const GAME_TYPES = React.useMemo(() => {
+    if (form.gameType && !dynamicGameTypes.includes(form.gameType)) {
+      return [...dynamicGameTypes, form.gameType];
+    }
+    return dynamicGameTypes;
+  }, [dynamicGameTypes, form.gameType]);
   const [stats, setStats] = useState([{ key: '', value: '' }]);
   const [images, setImages] = useState([]); // existing URLs
   const [newImages, setNewImages] = useState([]); // File objects
