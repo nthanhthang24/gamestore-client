@@ -6,6 +6,7 @@ import {
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { db, storage } from '../../firebase/config';
+import { useGameTypes } from '../../hooks/useGameTypes';
 import { Plus, X, Upload, ImagePlus, Save, ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
 import './AdminAccountForm.css';
