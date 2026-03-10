@@ -1,7 +1,7 @@
 // src/pages/user/TopupPage.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { collection, query, where, orderBy, onSnapshot, getDocs } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, getDocs, getDoc, doc } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { useAuth } from '../../context/AuthContext';
 import { Wallet, CheckCircle, Clock, XCircle, Copy, QrCode, Building2 } from 'lucide-react';
@@ -41,7 +41,7 @@ const TopupPage = () => {
       where('userId', '==', currentUser.uid),
       orderBy('createdAt', 'desc')
     );
-    const unsub = onSnapshot(q, (snap) => {
+    const handleSnap = (snap) => {
       const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setHistory(items);
 
@@ -58,9 +58,37 @@ const TopupPage = () => {
           );
         }
       }
-    });
+    };
+
+    const handleError = (err) => {
+      console.error('onSnapshot error:', err.code, err.message);
+    };
+
+    const unsub = onSnapshot(q, handleSnap, handleError);
     return () => unsub();
   }, [currentUser]); // ← bỏ bankData?.topupId khỏi deps - listener không cần restart
+
+  // Polling fallback: mỗi 5 giây check topupId hiện tại nếu đang chờ
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const current = bankDataRef.current;
+      if (!current?.topupId || !currentUser) return;
+      try {
+        const snap = await getDoc(doc(db, 'topups', current.topupId));
+        if (snap.exists() && snap.data().status === 'approved') {
+          fetchUserProfile(currentUser.uid);
+          setBankData(null);
+          toast.success(
+            `✅ Nạp thành công! Số dư đã cập nhật.`,
+            { duration: 6000, style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--success)' } }
+          );
+        }
+      } catch(e) {
+        console.warn('Polling error:', e.message);
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [currentUser]);
 
   const handleCopy = (text, key) => {
     navigator.clipboard.writeText(text);
