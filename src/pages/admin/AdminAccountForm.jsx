@@ -4,8 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   collection, addDoc, doc, getDoc, updateDoc, serverTimestamp
 } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import { db, storage } from '../../firebase/config';
+import { db } from '../../firebase/config';
 import { useGameTypes } from '../../hooks/useGameTypes';
 import { Plus, X, Upload, ImagePlus, Save, ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -87,12 +86,24 @@ const AdminAccountForm = () => {
   };
 
   const uploadImages = async () => {
+    const CLOUD_NAME = process.env.REACT_APP_CLOUDINARY_CLOUD_NAME;
+    const UPLOAD_PRESET = process.env.REACT_APP_CLOUDINARY_UPLOAD_PRESET;
+    if (!CLOUD_NAME || !UPLOAD_PRESET) {
+      throw new Error('Chưa cấu hình Cloudinary. Thêm REACT_APP_CLOUDINARY_CLOUD_NAME và REACT_APP_CLOUDINARY_UPLOAD_PRESET vào .env');
+    }
     const urls = [];
     for (const file of newImages) {
-      const storageRef = ref(storage, `accounts/${Date.now()}_${file.name}`);
-      await uploadBytes(storageRef, file);
-      const url = await getDownloadURL(storageRef);
-      urls.push(url);
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('upload_preset', UPLOAD_PRESET);
+      formData.append('folder', 'gamestore/accounts');
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+      if (!res.ok) throw new Error('Upload ảnh thất bại');
+      const data = await res.json();
+      urls.push(data.secure_url);
     }
     return urls;
   };
