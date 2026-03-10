@@ -104,10 +104,6 @@ const TopupPage = () => {
         {/* Header */}
         <div className="topup-header">
           <h1 className="section-title"><Wallet size={26} /> Nạp tiền</h1>
-          <div className="current-balance">
-            <span className="balance-label">Số dư hiện tại</span>
-            <span className="balance-value">{(userProfile?.balance || 0).toLocaleString('vi-VN')}đ</span>
-          </div>
         </div>
 
         <div className="topup-layout">
