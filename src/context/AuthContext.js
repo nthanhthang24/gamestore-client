@@ -13,7 +13,6 @@ import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../firebase/config';
 
 const AuthContext = createContext();
-
 export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }) => {
@@ -24,15 +23,22 @@ export const AuthProvider = ({ children }) => {
   const register = async (email, password, displayName) => {
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     await updateProfile(userCredential.user, { displayName });
-    await setDoc(doc(db, 'users', userCredential.user.uid), {
-      uid: userCredential.user.uid,
-      email,
-      displayName,
-      role: 'user',
-      balance: 0,
-      createdAt: serverTimestamp(),
-      avatar: null,
-    });
+
+    // Lưu Firestore - không block nếu Firestore chưa tạo
+    try {
+      await setDoc(doc(db, 'users', userCredential.user.uid), {
+        uid: userCredential.user.uid,
+        email,
+        displayName,
+        role: 'user',
+        balance: 0,
+        createdAt: serverTimestamp(),
+        avatar: null,
+      });
+    } catch (e) {
+      console.warn('Firestore chưa sẵn sàng:', e.message);
+    }
+
     return userCredential;
   };
 
@@ -41,18 +47,22 @@ export const AuthProvider = ({ children }) => {
   const loginWithGoogle = async () => {
     const provider = new GoogleAuthProvider();
     const result = await signInWithPopup(auth, provider);
-    const userRef = doc(db, 'users', result.user.uid);
-    const snap = await getDoc(userRef);
-    if (!snap.exists()) {
-      await setDoc(userRef, {
-        uid: result.user.uid,
-        email: result.user.email,
-        displayName: result.user.displayName,
-        role: 'user',
-        balance: 0,
-        createdAt: serverTimestamp(),
-        avatar: result.user.photoURL,
-      });
+    try {
+      const userRef = doc(db, 'users', result.user.uid);
+      const snap = await getDoc(userRef);
+      if (!snap.exists()) {
+        await setDoc(userRef, {
+          uid: result.user.uid,
+          email: result.user.email,
+          displayName: result.user.displayName,
+          role: 'user',
+          balance: 0,
+          createdAt: serverTimestamp(),
+          avatar: result.user.photoURL,
+        });
+      }
+    } catch (e) {
+      console.warn('Firestore Google login:', e.message);
     }
     return result;
   };
@@ -60,8 +70,14 @@ export const AuthProvider = ({ children }) => {
   const logout = () => signOut(auth);
 
   const fetchUserProfile = async (uid) => {
-    const snap = await getDoc(doc(db, 'users', uid));
-    if (snap.exists()) setUserProfile(snap.data());
+    try {
+      const snap = await getDoc(doc(db, 'users', uid));
+      if (snap.exists()) setUserProfile({ ...snap.data(), balance: snap.data().balance || 0 });
+      else setUserProfile({ uid, balance: 0, role: 'user' });
+    } catch (e) {
+      console.warn('fetchUserProfile error:', e.message);
+      setUserProfile({ uid, balance: 0, role: 'user' });
+    }
   };
 
   useEffect(() => {
@@ -75,6 +91,5 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const value = { currentUser, userProfile, register, login, loginWithGoogle, logout, fetchUserProfile };
-
   return <AuthContext.Provider value={value}>{!loading && children}</AuthContext.Provider>;
 };
