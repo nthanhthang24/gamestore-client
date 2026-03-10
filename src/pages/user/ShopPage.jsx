@@ -10,7 +10,7 @@ import './ShopPage.css';
 import { useFlashSale } from '../../hooks/useFlashSale';
 import { Flame } from 'lucide-react';
 
-const GAME_TYPES = ['Tất cả', 'LMHT', 'VALORANT', 'Free Fire', 'PUBG', 'Genshin Impact', 'Liên Quân', 'Mobile Legends', 'Clash of Clans'];
+// GAME_TYPES loaded dynamically from Firestore via useGameTypes hook
 const SORT_OPTIONS = [
   { value: 'newest', label: 'Mới nhất' },
   { value: 'price_asc', label: 'Giá: Thấp → Cao' },
@@ -34,6 +34,7 @@ const ShopPage = ({ onAddToCart }) => {
   const [showFilters, setShowFilters] = useState(false);
 
   const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || '');
+  const { gameTypeNamesWithAll: GAME_TYPES } = useGameTypes();
   const [gameType, setGameType] = useState('Tất cả');
   const [priceRange, setPriceRange] = useState(0);
   const [sortBy, setSortBy] = useState('newest');

@@ -12,16 +12,9 @@ import toast from 'react-hot-toast';
 import './HomePage.css';
 import { useFlashSale } from '../../hooks/useFlashSale';
 import { Flame } from 'lucide-react';
+import { useGameTypes } from '../../hooks/useGameTypes';
 
-const GAME_TYPES = [
-  { id: 'all', label: 'Tất cả', icon: <Gamepad2 size={18} /> },
-  { id: 'LMHT', label: 'LMHT', icon: '🏆' },
-  { id: 'VALORANT', label: 'Valorant', icon: '🎯' },
-  { id: 'Free Fire', label: 'Free Fire', icon: '🔥' },
-  { id: 'PUBG', label: 'PUBG', icon: '🎮' },
-  { id: 'Genshin Impact', label: 'Genshin', icon: '⚔️' },
-  { id: 'Liên Quân', label: 'Liên Quân', icon: '⚡' },
-];
+// GAME_TYPES loaded dynamically via useGameTypes hook inside component
 
 const STATS = [
   { icon: <Users size={24} />, value: '10,000+', label: 'Khách hàng', color: 'var(--accent)' },
@@ -31,6 +24,12 @@ const STATS = [
 ];
 
 const HomePage = ({ onAddToCart }) => {
+  const { gameTypes: dynamicGameTypes } = useGameTypes();
+  // Thêm "Tất cả" vào đầu với icon Gamepad
+  const GAME_TYPES = [
+    { id: 'all', label: 'Tất cả', icon: <Gamepad2 size={18} />, color: 'var(--accent)' },
+    ...dynamicGameTypes.map(g => ({ id: g.name, label: g.name, icon: g.icon, color: g.color })),
+  ];
   const [featuredAccounts, setFeaturedAccounts] = useState([]);
   const [newAccounts, setNewAccounts] = useState([]);
   const [loading, setLoading] = useState(true);

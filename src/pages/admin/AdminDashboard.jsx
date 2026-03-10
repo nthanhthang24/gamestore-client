@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Package, ShoppingBag, Users, Settings,
   TrendingUp, DollarSign, Eye, Plus, ChevronRight,
   Zap, Shield, Menu, X, LogOut, Wallet, Tag, Sword
-} from 'lucide-react';
+, Gamepad2} from 'lucide-react';
 import './AdminDashboard.css';
 
 const AdminLayout = () => {
@@ -23,6 +23,7 @@ const AdminLayout = () => {
     { path: '/admin/topups', icon: <Wallet size={18} />, label: 'Nạp tiền' },
     { path: '/admin/vouchers', icon: <Tag size={18} />, label: 'Voucher & Sale' },
     { path: '/admin/services', icon: <Sword size={18} />, label: 'Dịch vụ Game' },
+    { path: '/admin/game-types', icon: <Gamepad2 size={18} />, label: 'Loại Game' },
     { path: '/admin/users', icon: <Users size={18} />, label: 'Người dùng' },
     { path: '/admin/settings', icon: <Settings size={18} />, label: 'Cài đặt' },
   ];

@@ -10,10 +10,11 @@ import { Plus, X, Upload, ImagePlus, Save, ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
 import './AdminAccountForm.css';
 
-const GAME_TYPES = ['LMHT', 'VALORANT', 'Free Fire', 'PUBG', 'Genshin Impact', 'Liên Quân', 'Mobile Legends', 'Clash of Clans', 'Khác'];
+// GAME_TYPES loaded dynamically via useGameTypes hook
 const RANKS = ['', 'Sắt', 'Đồng', 'Bạc', 'Vàng', 'Bạch kim', 'Kim cương', 'Cao thủ', 'Thách đấu', 'Radiant', 'Immortal'];
 
 const AdminAccountForm = () => {
+  const { gameTypeNames: GAME_TYPES } = useGameTypes();
   const { id } = useParams();
   const navigate = useNavigate();
   const isEdit = !!id;

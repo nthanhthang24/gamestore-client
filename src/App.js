@@ -31,6 +31,7 @@ import AdminAccountForm from './pages/admin/AdminAccountForm';
 import AdminTopups from './pages/admin/AdminTopups';
 import AdminVouchers from './pages/admin/AdminVouchers';
 import AdminServices from './pages/admin/AdminServices';
+import AdminGameTypes from './pages/admin/AdminGameTypes';
 import ServicesPage from './pages/user/ServicesPage';
 import MyVouchersPage from './pages/user/MyVouchersPage';
 import './index.css';
@@ -285,6 +286,7 @@ const AppContent = () => {
           <Route path="topups" element={<AdminTopups />} />
           <Route path="vouchers" element={<AdminVouchers />} />
           <Route path="services" element={<AdminServices />} />
+          <Route path="game-types" element={<AdminGameTypes />} />
           <Route path="users" element={<AdminUsersPage />} />
           <Route path="settings" element={<AdminSettingsPage />} />
         </Route>
