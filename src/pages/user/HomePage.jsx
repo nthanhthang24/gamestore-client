@@ -34,7 +34,7 @@ const HomePage = ({ onAddToCart }) => {
   const [newAccounts, setNewAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeType, setActiveType] = useState('all');
-  const { activeFlashSale, getSalePrice } = useFlashSale();
+  const { activeFlashSale, getSalePrice, countdown } = useFlashSale();
 
   useEffect(() => {
     fetchAccounts();
@@ -76,9 +76,9 @@ const HomePage = ({ onAddToCart }) => {
             <Flame size={20} className="fsb-icon" />
             <span className="fsb-label">{activeFlashSale.label}</span>
             <span className="fsb-badge">GIẢM {activeFlashSale.discount}%</span>
-            {activeFlashSale.endAt && (
-              <span className="fsb-ends">
-                Kết thúc: {new Date(activeFlashSale.endAt?.toDate?.() || activeFlashSale.endAt).toLocaleString('vi-VN')}
+            {countdown && !countdown.expired && (
+              <span className="fsb-ends" style={{ fontFamily: 'monospace', letterSpacing: '0.5px' }}>
+                ⏱ {String(countdown.h).padStart(2,'0')}:{String(countdown.m).padStart(2,'0')}:{String(countdown.s).padStart(2,'0')}
               </span>
             )}
             <Link to="/shop" className="fsb-cta">Mua ngay →</Link>
@@ -197,7 +197,7 @@ const HomePage = ({ onAddToCart }) => {
               </Link>
             </div>
             <div className="grid grid-4" style={{ gap: '20px' }}>
-              {featuredAccounts.map(acc => (
+              {(activeType === 'all' ? featuredAccounts : featuredAccounts.filter(a => a.gameType === activeType)).map(acc => (
                 <AccountCard key={acc.id} account={acc} onAddToCart={handleAddToCart} />
               ))}
             </div>
@@ -224,11 +224,20 @@ const HomePage = ({ onAddToCart }) => {
               <div className="spinner" />
             </div>
           ) : (
-            <div className="grid grid-4" style={{ gap: '20px' }}>
-              {newAccounts.map(acc => (
-                <AccountCard key={acc.id} account={acc} onAddToCart={handleAddToCart} />
-              ))}
-            </div>
+            (() => {
+              const displayAccounts = activeType === 'all' ? newAccounts : newAccounts.filter(a => a.gameType === activeType);
+              return displayAccounts.length > 0 ? (
+                <div className="grid grid-4" style={{ gap: '20px' }}>
+                  {displayAccounts.map(acc => (
+                    <AccountCard key={acc.id} account={acc} onAddToCart={handleAddToCart} />
+                  ))}
+                </div>
+              ) : (
+                <div style={{ textAlign:'center', padding:'40px', color:'var(--text-muted)' }}>
+                  Chưa có tài khoản <strong>{activeType}</strong> nào. <a href="/shop" style={{ color:'var(--accent)' }}>Xem tất cả →</a>
+                </div>
+              );
+            })()
           )}
         </div>
       </section>

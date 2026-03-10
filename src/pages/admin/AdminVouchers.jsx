@@ -25,11 +25,12 @@ const VouchersTab = () => {
   const [vouchers, setVouchers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null); // F-01: edit support
   const [form, setForm] = useState(defaultVoucher);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => { fetch(); }, []);
-  const fetch = async () => {
+  useEffect(() => { fetchVouchers(); }, []);
+  const fetchVouchers = async () => {
     try {
       const snap = await getDocs(query(collection(db, 'vouchers'), orderBy('createdAt', 'desc')));
       setVouchers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -44,18 +45,35 @@ const VouchersTab = () => {
   const handleSave = async () => {
     if (!form.code.trim()) { toast.error('Nhập mã voucher', T); return; }
     if (!form.value || form.value <= 0) { toast.error('Nhập giá trị giảm', T); return; }
+    if (form.type === 'percent' && Number(form.value) > 100) { toast.error('% giảm không thể vượt 100%', T); return; }
     setSaving(true);
     try {
-      await addDoc(collection(db, 'vouchers'), {
+      const payload = {
         ...form, code: form.code.toUpperCase().trim(),
         value: Number(form.value), minOrder: Number(form.minOrder),
         maxDiscount: Number(form.maxDiscount), usageLimit: Number(form.usageLimit),
-        usedCount: 0, expiresAt: form.expiresAt ? new Date(form.expiresAt) : null,
-        createdAt: serverTimestamp(),
-      });
-      toast.success('Tạo voucher thành công!', T);
-      setShowForm(false); setForm(defaultVoucher); fetch();
+        expiresAt: form.expiresAt ? new Date(form.expiresAt) : null,
+      };
+      if (editingId) {
+        await updateDoc(doc(db, 'vouchers', editingId), payload);
+        toast.success('Cập nhật voucher thành công!', T);
+      } else {
+        await addDoc(collection(db, 'vouchers'), { ...payload, usedCount: 0, createdAt: serverTimestamp() });
+        toast.success('Tạo voucher thành công!', T);
+      }
+      setShowForm(false); setEditingId(null); setForm(defaultVoucher); fetchVouchers();
     } catch (e) { toast.error(e.message, T); } finally { setSaving(false); }
+  };
+
+  const openEdit = (v) => {
+    setEditingId(v.id);
+    setForm({
+      code: v.code, type: v.type, value: v.value, minOrder: v.minOrder || 0,
+      maxDiscount: v.maxDiscount || 0, usageLimit: v.usageLimit || 100,
+      expiresAt: v.expiresAt ? (() => { const d = v.expiresAt?.toDate ? v.expiresAt.toDate() : new Date(v.expiresAt); return d.toISOString().slice(0,16); })() : '',
+      description: v.description || '', targetUserId: v.targetUserId || '', active: v.active,
+    });
+    setShowForm(true);
   };
 
   const toggle = async (id, active) => {
@@ -78,7 +96,7 @@ const VouchersTab = () => {
 
       {showForm && (
         <div className="av-form card">
-          <h3 style={{ marginBottom: 20, color: 'var(--accent)' }}>Tạo Voucher Mới</h3>
+          <h3 style={{ marginBottom: 20, color: 'var(--accent)' }}>{editingId ? '✏️ Chỉnh sửa Voucher' : 'Tạo Voucher Mới'}</h3>
           <div className="av-form-grid">
             <div className="form-group">
               <label className="form-label">Mã voucher *</label>
@@ -126,8 +144,8 @@ const VouchersTab = () => {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-            <button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving ? 'Đang lưu...' : <><CheckCircle size={15} /> Tạo</>}</button>
-            <button className="btn btn-ghost" onClick={() => { setShowForm(false); setForm(defaultVoucher); }}>Huỷ</button>
+            <button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving ? 'Đang lưu...' : <><CheckCircle size={15} /> {editingId ? 'Cập nhật' : 'Tạo'}</>}</button>
+            <button className="btn btn-ghost" onClick={() => { setShowForm(false); setEditingId(null); setForm(defaultVoucher); }}>Huỷ</button>
           </div>
         </div>
       )}
@@ -171,8 +189,8 @@ const FlashSaleTab = () => {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ label: '', discount: 10, startAt: '', endAt: '', active: true, color: '#ff4757' });
 
-  useEffect(() => { fetch(); }, []);
-  const fetch = async () => {
+  useEffect(() => { fetchVouchers(); }, []);
+  const fetchVouchers = async () => {
     const snap = await getDocs(collection(db, 'flashSales'));
     setFlashSales(snap.docs.map(d => ({ id: d.id, ...d.data() })));
   };

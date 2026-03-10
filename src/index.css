@@ -273,3 +273,63 @@ body::before {
 .fsb-cta { background: #fff; color: #000; padding: 5px 16px; border-radius: 20px; font-weight: 800; font-size: 13px; text-decoration: none; transition: transform 0.15s; font-family: 'Rajdhani', sans-serif; margin-left: 4px; }
 .fsb-cta:hover { transform: scale(1.05); }
 @keyframes fsbPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.15); } }
+
+/* ══════════════════════════════════════════════
+   Sprint 4 — Mobile Responsive Pass
+══════════════════════════════════════════════ */
+
+/* Admin layout mobile */
+@media (max-width: 768px) {
+  .admin-layout { flex-direction: column; }
+  .admin-sidebar { width: 100%; height: auto; position: relative; padding: 8px 0; flex-direction: row; overflow-x: auto; }
+  .admin-nav { flex-direction: row; gap: 4px; padding: 4px 12px; }
+  .admin-nav-item { padding: 8px 12px; flex-shrink: 0; font-size: 12px; flex-direction: column; gap: 3px; text-align: center; }
+  .admin-nav-item span { font-size: 10px; }
+  .admin-content { padding: 16px; }
+  .admin-page-header { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .admin-stats { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 480px) {
+  .admin-stats { grid-template-columns: 1fr; }
+  .admin-table { font-size: 12px; }
+  .admin-table th, .admin-table td { padding: 8px 6px; }
+}
+
+/* Cart page mobile */
+@media (max-width: 768px) {
+  .cart-layout { flex-direction: column; }
+  .cart-summary { width: 100%; }
+}
+
+/* Shop sidebar mobile */
+@media (max-width: 768px) {
+  .shop-layout { flex-direction: column; }
+  .shop-sidebar { width: 100%; display: none; }
+  .shop-sidebar.show { display: block; }
+}
+
+/* Profile page mobile */
+@media (max-width: 600px) {
+  .profile-grid { grid-template-columns: 1fr !important; }
+}
+
+/* Topup page mobile */
+@media (max-width: 480px) {
+  .topup-amounts { grid-template-columns: repeat(3, 1fr); }
+  .payment-modal { margin: 8px; width: calc(100% - 16px) !important; }
+}
+
+/* Account detail mobile */
+@media (max-width: 600px) {
+  .account-detail-layout { flex-direction: column; }
+  .account-detail-gallery { max-width: 100%; }
+}
+
+/* General utility */
+@media (max-width: 480px) {
+  .btn-group { flex-wrap: wrap; }
+  .section-title { font-size: 24px; }
+  .hero-title { font-size: 32px !important; }
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+}

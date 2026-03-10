@@ -39,7 +39,7 @@ const AccountDetailPage = ({ onAddToCart }) => {
     if (!currentUser) { navigate('/login'); return; }
     // ✅ FIX: Truyền salePrice từ flash sale vào cart
     const salePrice = activeFlashSale ? getSalePrice(account.price) : null;
-    onAddoCart?.({ ...account, salePrice: activeFlashSale && salePrice && salePrice < account.price ? salePrice : null });
+    onAddToCart?.({ ...account, salePrice: activeFlashSale && salePrice && salePrice < account.price ? salePrice : null });
     navigate('/cart');
   };
 
@@ -63,7 +63,7 @@ const AccountDetailPage = ({ onAddToCart }) => {
       <div className="container">
         {/* Breadcrumb */}
         <div className="breadcrumb">
-          <button onClick={() => navigate('/shop')} className="breadcrumb-link">← Cửa hàng</button>
+          <button onClick={() => navigate(-1)} className="breadcrumb-link">← Quay lại</button>
           <span>/</span>
           <span>{account.gameType}</span>
           <span>/</span>
@@ -168,7 +168,7 @@ const AccountDetailPage = ({ onAddToCart }) => {
                 className="btn btn-ghost btn-lg"
                 onClick={() => {
                   const salePrice = activeFlashSale ? getSalePrice(account.price) : null;
-                  onAddoCart?.({ ...account, salePrice: activeFlashSale && salePrice && salePrice < account.price ? salePrice : null });
+                  onAddToCart?.({ ...account, salePrice: activeFlashSale && salePrice && salePrice < account.price ? salePrice : null });
                   toast.success('Đã thêm vào giỏ!', { style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' } });
                 }}
                 disabled={account.status === 'sold'}

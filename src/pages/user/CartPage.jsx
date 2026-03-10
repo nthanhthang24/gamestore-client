@@ -22,7 +22,8 @@ const CartPage = ({ cart, setCart }) => {
   const { currentUser, userProfile, fetchUserProfile } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-  const checkoutInProgress = useRef(false); // ✅ FIX: double-click guard
+  const checkoutInProgress = useRef(false);
+  const lastCheckoutTime = useRef(0); // T5-01: rate limit between checkouts
   const [voucherCode, setVoucherCode] = useState('');
 
   const { voucher, voucherError, voucherLoading, applyVoucher, calculateDiscount, clearVoucher } = useVoucher();
@@ -53,7 +54,14 @@ const CartPage = ({ cart, setCart }) => {
   const handleCheckout = useCallback(async () => {
     if (!currentUser) { navigate('/login'); return; }
     if (cart.length === 0) return;
-    if (checkoutInProgress.current) return; // ✅ chặn double-click
+    if (checkoutInProgress.current) return;
+    // T5-01: chặn 2 checkout trong vòng 3s (chống multi-tab)
+    const now = Date.now();
+    if (now - lastCheckoutTime.current < 3000) {
+      toast.error('Vui lòng đợi vài giây trước khi thử lại.', TS);
+      return;
+    }
+    lastCheckoutTime.current = now;
     checkoutInProgress.current = true;
     setLoading(true);
 
@@ -170,7 +178,10 @@ const CartPage = ({ cart, setCart }) => {
       // ── Bước 7: Tạo order record ──
       // Nếu fail: user đã bị trừ tiền (transaction đã commit) → phải retry hoặc admin hoàn tiền thủ công
       // Đây là acceptable trade-off; nếu cần 100% atomic phải dùng backend API
+      // T5-01: Idempotency key = uid + timestamp rounded to 10s window
+      const idempotencyKey = currentUser.uid + '_' + Math.floor(Date.now() / 10000);
       try { await addDoc(collection(db, 'orders'), {
+        idempotencyKey,
         userId: currentUser.uid,
         userEmail: currentUser.email,
         userName: userProfile?.displayName || currentUser.email,
@@ -217,7 +228,7 @@ const CartPage = ({ cart, setCart }) => {
       await fetchUserProfile(currentUser.uid);
       setCart([]);
       toast.success('🎉 Mua hàng thành công! Kiểm tra đơn hàng của bạn.', { duration: 5000, ...TS });
-      navigate('/orders');
+      setTimeout(() => navigate('/orders'), 400); // ✅ FIX T2-04: delay để toast hiện trước khi unmount
 
     } catch (err) {
       console.error('Checkout error:', err);
@@ -226,7 +237,7 @@ const CartPage = ({ cart, setCart }) => {
       setLoading(false);
       checkoutInProgress.current = false;
     }
-  }, [cart, currentUser, userProfile, voucher, getBulkDiscount, calculateDiscount, clearVoucher]);
+  }, [cart, currentUser, userProfile, voucher, getBulkDiscount, calculateDiscount, clearVoucher, fetchUserProfile]);
 
   return (
     <div className="cart-page page-wrapper">

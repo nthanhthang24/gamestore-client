@@ -200,6 +200,39 @@ const OrderModal = ({ service, onClose, onSubmit }) => {
   );
 };
 
+// Default services nếu Firestore chưa có data
+const DEFAULT_SERVICES = [
+  {
+    id: 'cay-thue-rank', type: 'cay-thue', name: 'Cày Thuê Rank',
+    description: 'Đẩy rank cho tài khoản của bạn với đội ngũ player chuyên nghiệp, tỷ lệ thắng cao.',
+    features: ['Rank từ Sắt đến Cao Thủ', 'Bảo hành rank 3 ngày', 'Không share thông tin', 'Báo cáo tiến độ hàng ngày'],
+    priceType: 'contact', price: null, priceUnit: null,
+    estimatedTime: '1–7 ngày', color: '#ff6b35', featured: true, available: true, order: 1,
+  },
+  {
+    id: 'doi-mat-khau', type: 'doi-mat-khau', name: 'Đổi Mật Khẩu Game',
+    description: 'Hỗ trợ đổi mật khẩu tài khoản game nhanh chóng, bảo mật, đảm bảo tuyệt đối.',
+    features: ['Xử lý trong 30 phút', 'Hỗ trợ mọi game', 'Cam kết bảo mật', 'Hỗ trợ 24/7'],
+    priceType: 'fixed', price: 20000, priceUnit: 'lần',
+    estimatedTime: '< 30 phút', color: '#7c3aed', featured: false, available: true, order: 2,
+  },
+  {
+    id: 'nhap-thong-tin', type: 'nhap-thong-tin', name: 'Nhập Thông Tin Ảo',
+    description: 'Nhập đầy đủ thông tin xác thực (CMND/CCCD ảo, số điện thoại) cho tài khoản trắng, tăng bảo mật.',
+    features: ['CCCD / CMND ảo hợp lệ', 'SĐT xác minh OTP', 'Email backup', 'Hướng dẫn chi tiết'],
+    priceType: 'fixed', price: 50000, priceUnit: 'tài khoản',
+    estimatedTime: '1–3 giờ', color: '#059669', featured: false, available: true, order: 3,
+  },
+  {
+    id: 'cay-quest', type: 'cay-thue', name: 'Cày Quest / Event',
+    description: 'Hoàn thành nhiệm vụ, sự kiện giới hạn thay bạn. Nhận phần thưởng mà không tốn thời gian.',
+    features: ['Tất cả quest thường/event', 'Bảo toàn vật phẩm', 'Xử lý nhanh', 'Báo cáo screenshot'],
+    priceType: 'contact', price: null, priceUnit: null,
+    estimatedTime: '2–24 giờ', color: '#d97706', featured: false, available: true, order: 4,
+  },
+];
+
+
 // ─── MAIN PAGE ────────────────────────────────────────────────────
 const ServicesPage = () => {
   const { currentUser, userProfile } = useAuth();
@@ -330,7 +363,7 @@ const ServicesPage = () => {
               <p>Liên hệ trực tiếp với chúng tôi để được tư vấn và báo giá theo yêu cầu</p>
             </div>
           </div>
-          <a href="/support" className="btn btn-primary">Liên hệ ngay</a>
+          <Link to="/support" className="btn btn-primary">Liên hệ ngay</Link>
         </div>
       </div>
 
@@ -345,36 +378,5 @@ const ServicesPage = () => {
   );
 };
 
-// Default services nếu Firestore chưa có data
-const DEFAULT_SERVICES = [
-  {
-    id: 'cay-thue-rank', type: 'cay-thue', name: 'Cày Thuê Rank',
-    description: 'Đẩy rank cho tài khoản của bạn với đội ngũ player chuyên nghiệp, tỷ lệ thắng cao.',
-    features: ['Rank từ Sắt đến Cao Thủ', 'Bảo hành rank 3 ngày', 'Không share thông tin', 'Báo cáo tiến độ hàng ngày'],
-    priceType: 'contact', price: null, priceUnit: null,
-    estimatedTime: '1–7 ngày', color: '#ff6b35', featured: true, available: true, order: 1,
-  },
-  {
-    id: 'doi-mat-khau', type: 'doi-mat-khau', name: 'Đổi Mật Khẩu Game',
-    description: 'Hỗ trợ đổi mật khẩu tài khoản game nhanh chóng, bảo mật, đảm bảo tuyệt đối.',
-    features: ['Xử lý trong 30 phút', 'Hỗ trợ mọi game', 'Cam kết bảo mật', 'Hỗ trợ 24/7'],
-    priceType: 'fixed', price: 20000, priceUnit: 'lần',
-    estimatedTime: '< 30 phút', color: '#7c3aed', featured: false, available: true, order: 2,
-  },
-  {
-    id: 'nhap-thong-tin', type: 'nhap-thong-tin', name: 'Nhập Thông Tin Ảo',
-    description: 'Nhập đầy đủ thông tin xác thực (CMND/CCCD ảo, số điện thoại) cho tài khoản trắng, tăng bảo mật.',
-    features: ['CCCD / CMND ảo hợp lệ', 'SĐT xác minh OTP', 'Email backup', 'Hướng dẫn chi tiết'],
-    priceType: 'fixed', price: 50000, priceUnit: 'tài khoản',
-    estimatedTime: '1–3 giờ', color: '#059669', featured: false, available: true, order: 3,
-  },
-  {
-    id: 'cay-quest', type: 'cay-thue', name: 'Cày Quest / Event',
-    description: 'Hoàn thành nhiệm vụ, sự kiện giới hạn thay bạn. Nhận phần thưởng mà không tốn thời gian.',
-    features: ['Tất cả quest thường/event', 'Bảo toàn vật phẩm', 'Xử lý nhanh', 'Báo cáo screenshot'],
-    priceType: 'contact', price: null, priceUnit: null,
-    estimatedTime: '2–24 giờ', color: '#d97706', featured: false, available: true, order: 4,
-  },
-];
 
 export default ServicesPage;

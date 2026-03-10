@@ -3,6 +3,8 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Eye, EyeOff, Zap, Mail, Lock, User, AlertCircle } from 'lucide-react';
+import { sendPasswordResetEmail } from 'firebase/auth';
+import { auth } from '../../firebase/config';
 import toast from 'react-hot-toast';
 import './AuthPages.css';
 
@@ -13,7 +15,7 @@ export const LoginPage = () => {
   // Nếu đã đăng nhập → redirect về trang chủ
   React.useEffect(() => {
     if (currentUser) navigate('/', { replace: true });
-  }, [currentUser]);
+  }, [currentUser, navigate]); // ✅ FIX T1-01
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
@@ -38,6 +40,20 @@ export const LoginPage = () => {
       await loginWithGoogle();
       navigate('/');
     } catch (err) { setError('Đăng nhập Google thất bại'); }
+  };
+
+  const [forgotEmail, setForgotEmail] = React.useState('');
+  const [forgotMode, setForgotMode] = React.useState(false);
+  const [forgotSent, setForgotSent] = React.useState(false);
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    if (!forgotEmail) { setError('Nhập email để đặt lại mật khẩu'); return; }
+    try {
+      await sendPasswordResetEmail(auth, forgotEmail);
+      setForgotSent(true);
+    } catch (err) {
+      setError('Email không tồn tại hoặc có lỗi xảy ra');
+    }
   };
 
   return (
@@ -90,17 +106,41 @@ export const LoginPage = () => {
           </button>
         </form>
 
-        <p className="auth-switch">
-          Chưa có tài khoản? <Link to="/register" className="auth-link">Đăng ký ngay</Link>
-        </p>
+        {!forgotMode ? (
+          <p className="auth-switch" style={{ display:'flex', justifyContent:'space-between' }}>
+            <span>Chưa có tài khoản? <Link to="/register" className="auth-link">Đăng ký ngay</Link></span>
+            <button type="button" className="auth-link" style={{ background:'none', border:'none', cursor:'pointer', color:'var(--accent)', fontSize:'13px' }} onClick={() => { setForgotMode(true); setError(''); }}>Quên mật khẩu?</button>
+          </p>
+        ) : (
+          <div style={{ marginTop:'16px' }}>
+            {forgotSent ? (
+              <div style={{ background:'rgba(0,255,136,0.08)', border:'1px solid var(--success)', borderRadius:8, padding:'14px', textAlign:'center', fontSize:'13px', color:'var(--success)' }}>
+                ✅ Email đặt lại mật khẩu đã được gửi! Kiểm tra hộp thư của bạn.
+              </div>
+            ) : (
+              <form onSubmit={handleForgotPassword} style={{ display:'flex', flexDirection:'column', gap:'12px' }}>
+                <p style={{ fontSize:'13px', color:'var(--text-secondary)' }}>Nhập email để nhận link đặt lại mật khẩu:</p>
+                <input type="email" className="form-input" placeholder="email@example.com" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)} required />
+                <button type="submit" className="btn btn-primary w-full">Gửi link đặt lại mật khẩu</button>
+              </form>
+            )}
+            <button type="button" className="auth-link" style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)', fontSize:'13px', marginTop:'10px', display:'block' }} onClick={() => { setForgotMode(false); setForgotSent(false); setError(''); }}>← Quay lại đăng nhập</button>
+          </div>
+        )}
       </div>
     </div>
   );
 };
 
 export const RegisterPage = () => {
-  const { register } = useAuth();
+  const { register, currentUser } = useAuth();
   const navigate = useNavigate();
+
+  // Nếu đã đăng nhập → redirect về trang chủ
+  React.useEffect(() => {
+    if (currentUser) navigate('/', { replace: true });
+  }, [currentUser, navigate]); // ✅ FIX T1-01
+
   const [form, setForm] = useState({ displayName: '', email: '', password: '', confirm: '' });
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);

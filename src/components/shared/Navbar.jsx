@@ -184,11 +184,27 @@ const Navbar = ({ cartCount = 0 }) => {
       {/* Mobile menu */}
       {menuOpen && (
         <div className="mobile-menu">
+          {currentUser && (
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', marginBottom: 8 }}>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>{userProfile?.displayName || currentUser.email}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, color: 'var(--gold)', fontSize: 13 }}>
+                <Wallet size={13} /> {(userProfile?.balance || 0).toLocaleString('vi-VN')}đ
+              </div>
+            </div>
+          )}
           {navLinks.map(link => (
             <Link key={link.path} to={link.path} className="mobile-link" onClick={() => setMenuOpen(false)}>
               {link.label}
             </Link>
           ))}
+          {currentUser && (
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 8, marginTop: 8 }}>
+              <Link to="/profile" className="mobile-link" onClick={() => setMenuOpen(false)}>👤 Hồ sơ</Link>
+              <Link to="/orders" className="mobile-link" onClick={() => setMenuOpen(false)}>📦 Đơn hàng</Link>
+              <Link to="/vouchers" className="mobile-link" onClick={() => setMenuOpen(false)}>🎫 Voucher</Link>
+              <button className="mobile-link danger" style={{ width:'100%', textAlign:'left', background:'none', border:'none', cursor:'pointer', color:'var(--danger)' }} onClick={handleLogout}>🚪 Đăng xuất</button>
+            </div>
+          )}
           {!currentUser && (
             <div className="mobile-auth">
               <Link to="/login" className="btn btn-ghost w-full" onClick={() => setMenuOpen(false)}>Đăng nhập</Link>

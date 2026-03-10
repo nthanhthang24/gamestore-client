@@ -6,7 +6,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { useGameTypes } from '../../hooks/useGameTypes';
-import { Plus, X, Upload, ImagePlus, Save, ArrowLeft } from 'lucide-react';
+import { Plus, X, Upload, ImagePlus, Save, ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import toast from 'react-hot-toast';
 import './AdminAccountForm.css';
 
@@ -42,6 +42,7 @@ const AdminAccountForm = () => {
   const [previews, setPreviews] = useState([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [showLoginPass, setShowLoginPass] = useState(false); // ✅ FIX T5-02
 
   useEffect(() => {
     if (isEdit) loadAccount();
@@ -125,6 +126,9 @@ const AdminAccountForm = () => {
     if (e && e.preventDefault) e.preventDefault();
     if (!form.title || !form.price) { toast.error('Điền đầy đủ thông tin!'); return; }
     if (Number(form.price) <= 0) { toast.error('Giá bán phải lớn hơn 0!'); return; }
+    // ✅ FIX T3-05: loginUsername/loginPassword bắt buộc
+    if (!form.loginUsername?.trim()) { toast.error('⚠️ Thiếu tên đăng nhập tài khoản game! Người mua sẽ không nhận được thông tin.'); return; }
+    if (!form.loginPassword?.trim()) { toast.error('⚠️ Thiếu mật khẩu tài khoản game! Người mua sẽ không nhận được thông tin.'); return; }
     // ✅ FIX: originalPrice phải >= price nếu có (giá gốc không thể thấp hơn giá bán)
     if (form.originalPrice && Number(form.originalPrice) < Number(form.price)) {
       toast.error('Giá gốc phải >= giá bán!'); return;
@@ -244,8 +248,14 @@ const AdminAccountForm = () => {
                 </div>
                 <div className="form-group">
                   <label className="form-label">Mật khẩu *</label>
+                  <div style={{ position: 'relative' }}>
                   <input name="loginPassword" value={form.loginPassword} onChange={handleChange} className="form-input"
-                    placeholder="Mật khẩu tài khoản" type="text" autoComplete="off" />
+                    placeholder="Mật khẩu tài khoản" type={showLoginPass ? 'text' : 'password'} autoComplete="off" style={{ paddingRight: '40px' }} />
+                  <button type="button" onClick={() => setShowLoginPass(p => !p)}
+                    style={{ position:'absolute', right:'10px', top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)' }}>
+                    {showLoginPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
                 </div>
               </div>
               <div className="form-group">

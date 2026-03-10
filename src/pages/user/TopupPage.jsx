@@ -22,8 +22,9 @@ const TopupPage = () => {
   const navigate = useNavigate();
 
   const [amount, setAmount] = useState('');
-  const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [bankData, setBankData] = useState(null);
   const bankDataRef = useRef(null); // ← ref để closure trong onSnapshot luôn đọc được giá trị mới nhất
   const [copied, setCopied] = useState('');
@@ -258,6 +259,33 @@ const TopupPage = () => {
       {/* QR Modal */}
       {bankData && (
         <BankModal data={bankData} onClose={() => setBankData(null)} onCopy={handleCopy} copied={copied} />
+      )}
+
+      {/* Topup History */}
+      {history.length > 0 && (
+        <div className="topup-history" style={{ maxWidth: 560, margin: '32px auto 0' }}>
+          <h3 style={{ fontFamily: 'Rajdhani', fontSize: 18, fontWeight: 700, marginBottom: 16 }}>
+            📋 Lịch sử nạp tiền
+          </h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {history.slice(0, 10).map(t => (
+              <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: 'var(--bg-card)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>
+                    +{(t.amount || 0).toLocaleString('vi-VN')}đ
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                    {t.createdAt?.toDate?.()?.toLocaleString('vi-VN') || '—'}
+                    {t.transferContent && ` · ${t.transferContent}`}
+                  </div>
+                </div>
+                <span className={`badge ${t.status === 'approved' ? 'badge-success' : t.status === 'pending' ? 'badge-orange' : 'badge-danger'}`} style={{ fontSize: 11 }}>
+                  {t.status === 'approved' ? '✅ Thành công' : t.status === 'pending' ? '⏳ Chờ xử lý' : '❌ Từ chối'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );

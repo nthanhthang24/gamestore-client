@@ -81,13 +81,36 @@ export const AuthProvider = ({ children }) => {
   };
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    let profileUnsub = null;
+
+    const authUnsub = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
-      if (user) await fetchUserProfile(user.uid);
-      else setUserProfile(null);
+      // Cancel previous profile listener
+      if (profileUnsub) { profileUnsub(); profileUnsub = null; }
+      if (user) {
+        // Initial fetch
+        await fetchUserProfile(user.uid);
+        // Realtime listener for balance changes (B-10)
+        const { onSnapshot } = await import('firebase/firestore');
+        profileUnsub = onSnapshot(
+          doc(db, 'users', user.uid),
+          (snap) => {
+            if (snap.exists()) {
+              setUserProfile(prev => ({ ...prev, ...snap.data(), balance: snap.data().balance || 0 }));
+            }
+          },
+          (err) => console.warn('Profile listener error:', err.message)
+        );
+      } else {
+        setUserProfile(null);
+      }
       setLoading(false);
     });
-    return unsubscribe;
+
+    return () => {
+      authUnsub();
+      if (profileUnsub) profileUnsub();
+    };
   }, []);
 
   const value = { currentUser, userProfile, loading, register, login, loginWithGoogle, logout, fetchUserProfile };

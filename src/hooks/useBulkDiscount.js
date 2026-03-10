@@ -13,7 +13,14 @@ export const useBulkDiscount = () => {
           query(collection(db, 'bulkDiscountRules'), where('active', '==', true), orderBy('minQty', 'asc'))
         );
         setRules(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        // Fallback: load without orderBy nếu index chưa tạo, sort client-side
+        try {
+          const snap2 = await getDocs(query(collection(db, 'bulkDiscountRules'), where('active', '==', true)));
+          const sorted = snap2.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.minQty || 0) - (b.minQty || 0));
+          setRules(sorted);
+        } catch (e2) { console.error('bulkDiscount fallback error:', e2); }
+      }
     };
     fetch();
   }, []);

@@ -12,6 +12,8 @@ const AdminAccounts = () => {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [selected, setSelected] = useState(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   useEffect(() => { fetchAccounts(); }, []);
   useEffect(() => {
@@ -36,6 +38,30 @@ const AdminAccounts = () => {
       setAccounts(prev => prev.filter(a => a.id !== id));
       toast.success('Đã xóa!', { style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' } });
     } catch (err) { toast.error('Lỗi khi xóa'); }
+  };
+
+  const toggleSelect = (id) => setSelected(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+
+  const toggleSelectAll = () => {
+    if (selected.size === filtered.length) setSelected(new Set());
+    else setSelected(new Set(filtered.map(a => a.id)));
+  };
+
+  const handleBulkDelete = async () => {
+    if (selected.size === 0) return;
+    if (!window.confirm(`Xoá ${selected.size} tài khoản đã chọn?`)) return;
+    setBulkDeleting(true);
+    try {
+      await Promise.all([...selected].map(id => deleteDoc(doc(db, 'accounts', id))));
+      setAccounts(prev => prev.filter(a => !selected.has(a.id)));
+      setSelected(new Set());
+      toast.success(`Đã xoá ${selected.size} tài khoản`, { style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' } });
+    } catch(e) { toast.error('Lỗi bulk delete: ' + e.message); }
+    finally { setBulkDeleting(false); }
   };
 
   return (
@@ -65,6 +91,16 @@ const AdminAccounts = () => {
         </div>
       </div>
 
+      {selected.size > 0 && (
+        <div style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 16px', background:'rgba(0,212,255,0.06)', border:'1px solid var(--accent)', borderRadius:8, marginBottom:16 }}>
+          <span style={{ fontWeight:600, color:'var(--accent)' }}>{selected.size} đã chọn</span>
+          <button className="btn btn-sm" style={{ background:'var(--danger)', color:'#fff', padding:'4px 14px' }}
+            onClick={handleBulkDelete} disabled={bulkDeleting}>
+            {bulkDeleting ? '⏳ Đang xoá...' : '🗑️ Xoá đã chọn'}
+          </button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setSelected(new Set())}>Bỏ chọn</button>
+        </div>
+      )}
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         {loading ? (
           <div style={{ padding: '60px', textAlign: 'center' }}><div className="spinner" style={{ margin: '0 auto' }} /></div>
@@ -73,6 +109,11 @@ const AdminAccounts = () => {
             <table className="admin-table">
               <thead>
                 <tr>
+                  <th style={{ width:40 }}>
+                    <input type="checkbox"
+                      checked={selected.size === filtered.length && filtered.length > 0}
+                      onChange={toggleSelectAll} />
+                  </th>
                   <th>Ảnh</th>
                   <th>Tên tài khoản</th>
                   <th>Game</th>
@@ -85,7 +126,8 @@ const AdminAccounts = () => {
               </thead>
               <tbody>
                 {filtered.map(acc => (
-                  <tr key={acc.id}>
+                  <tr key={acc.id} style={{ background: selected.has(acc.id) ? 'rgba(0,212,255,0.04)' : '' }}>
+                    <td><input type="checkbox" checked={selected.has(acc.id)} onChange={() => toggleSelect(acc.id)} onClick={e => e.stopPropagation()} /></td>
                     <td>
                       <div style={{
                         width: '56px', height: '40px', borderRadius: '6px',

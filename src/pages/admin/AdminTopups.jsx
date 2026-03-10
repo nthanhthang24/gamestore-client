@@ -8,6 +8,26 @@ import { db } from '../../firebase/config';
 import { CheckCircle, XCircle, Clock, Wallet, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 
+// CSV export helper
+const exportCSV = (topups) => {
+  const rows = [
+    ['Mã giao dịch', 'Email', 'Số tiền', 'Trạng thái', 'Thời gian'],
+    ...topups.map(t => [
+      t.id,
+      t.userEmail || '',
+      t.amount || 0,
+      t.status || '',
+      t.createdAt?.toDate?.()?.toLocaleString('vi-VN') || '',
+    ])
+  ];
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url;
+  a.download = `topups_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click(); URL.revokeObjectURL(url);
+};
+
 const AdminTopups = () => {
   const [topups, setTopups] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -74,6 +94,7 @@ const AdminTopups = () => {
   };
 
   const filtered = topups.filter(t => filter === 'all' ? true : t.status === filter);
+  const handleExportCSV = () => exportCSV(filtered);
   const pendingCount = topups.filter(t => t.status === 'pending').length;
   const totalApproved = topups.filter(t => t.status === 'approved').reduce((s, t) => s + (t.amount || 0), 0);
 
@@ -92,6 +113,7 @@ const AdminTopups = () => {
         <button className="btn btn-ghost btn-sm" onClick={fetchTopups}>
           <RefreshCw size={15} /> Làm mới
         </button>
+              <button className="btn btn-ghost btn-sm" onClick={handleExportCSV} title="Xuất CSV" style={{ display:'flex', alignItems:'center', gap:6 }}>📊 Xuất CSV</button>
       </div>
 
       {/* Summary cards */}
