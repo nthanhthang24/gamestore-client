@@ -75,7 +75,17 @@ const AdminOrdersPage = () => {
       import('./firebase/config').then(({ db }) => {
         getDocs(query(collection(db, 'orders'), orderBy('createdAt', 'desc')))
           .then(snap => setOrders(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
-          .catch(console.error).finally(() => setLoading(false));
+          .catch(err => {
+            console.error('Admin orders error:', err);
+            // Fallback: load without orderBy if index missing
+            getDocs(collection(db, 'orders'))
+              .then(snap => {
+                const data = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+                  .sort((a, b) => (b.createdAt?.toDate?.() || 0) - (a.createdAt?.toDate?.() || 0));
+                setOrders(data);
+              })
+              .catch(console.error);
+          }).finally(() => setLoading(false));
       });
     });
   }, []);
@@ -120,17 +130,31 @@ const UserOrdersPage = () => {
   const { currentUser } = useAuth();
   const [orders, setOrders] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
+  const [fetchError, setFetchError] = React.useState(null);
 
   React.useEffect(() => {
     if (!currentUser) return;
-    import('firebase/firestore').then(({ collection, query, where, orderBy, getDocs }) => {
+    setLoading(true);
+    setFetchError(null);
+    import('firebase/firestore').then(({ collection, query, where, getDocs }) => {
       import('./firebase/config').then(({ db }) => {
+        // Bỏ orderBy để tránh cần composite index — sort ở client-side
         getDocs(query(collection(db, 'orders'),
-          where('userId', '==', currentUser.uid),
-          orderBy('createdAt', 'desc')
+          where('userId', '==', currentUser.uid)
         )).then(snap => {
-          setOrders(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-        }).catch(console.error).finally(() => setLoading(false));
+          const data = snap.docs
+            .map(d => ({ id: d.id, ...d.data() }))
+            .sort((a, b) => {
+              // Sort by createdAt desc, handle Firestore Timestamp
+              const ta = a.createdAt?.toDate?.() || new Date(a.createdAt || 0);
+              const tb = b.createdAt?.toDate?.() || new Date(b.createdAt || 0);
+              return tb - ta;
+            });
+          setOrders(data);
+        }).catch(err => {
+          console.error('Orders fetch error:', err);
+          setFetchError(err.message);
+        }).finally(() => setLoading(false));
       });
     });
   }, [currentUser]);
@@ -141,6 +165,13 @@ const UserOrdersPage = () => {
         <h1 className="section-title" style={{ marginBottom: '28px' }}>📦 Đơn hàng của tôi</h1>
         {loading ? (
           <div style={{ textAlign: 'center', padding: '60px' }}><div className="spinner" /></div>
+        ) : fetchError ? (
+          <div className="card" style={{ textAlign: 'center', padding: '40px', color: 'var(--danger)' }}>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>⚠️</div>
+            <h3>Không thể tải đơn hàng</h3>
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '8px' }}>{fetchError}</p>
+            <button className="btn btn-primary" style={{ marginTop: '16px' }} onClick={() => window.location.reload()}>Thử lại</button>
+          </div>
         ) : orders.length === 0 ? (
           <div className="card" style={{ textAlign: 'center', padding: '60px' }}>
             <div style={{ fontSize: '48px', marginBottom: '16px' }}>📭</div>

@@ -25,11 +25,11 @@ const STATS = [
 
 const HomePage = ({ onAddToCart }) => {
   const { gameTypes: dynamicGameTypes } = useGameTypes();
-  // Thêm "Tất cả" vào đầu với icon Gamepad
-  const GAME_TYPES = [
+  // Thêm "Tất cả" vào đầu với icon Gamepad — memoized để tránh re-render
+  const GAME_TYPES = React.useMemo(() => [
     { id: 'all', label: 'Tất cả', icon: <Gamepad2 size={18} />, color: 'var(--accent)' },
     ...dynamicGameTypes.map(g => ({ id: g.name, label: g.name, icon: g.icon, color: g.color })),
-  ];
+  ], [dynamicGameTypes]);
   const [featuredAccounts, setFeaturedAccounts] = useState([]);
   const [newAccounts, setNewAccounts] = useState([]);
   const [loading, setLoading] = useState(true);

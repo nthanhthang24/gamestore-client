@@ -7,8 +7,13 @@ import toast from 'react-hot-toast';
 import './AuthPages.css';
 
 export const LoginPage = () => {
-  const { login, loginWithGoogle } = useAuth();
+  const { login, loginWithGoogle, currentUser } = useAuth();
   const navigate = useNavigate();
+
+  // Nếu đã đăng nhập → redirect về trang chủ
+  React.useEffect(() => {
+    if (currentUser) navigate('/', { replace: true });
+  }, [currentUser]);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);

@@ -24,14 +24,18 @@ const AdminAccountForm = () => {
     originalPrice: '', description: '', status: 'available', featured: false,
     loginUsername: '', loginPassword: '', loginEmail: '', loginNote: '',
   });
+  const [gameTypeList, setGameTypeList] = useState([]);
 
-  // Đảm bảo gameType hiện tại luôn có trong list (phải sau useState form)
-  const GAME_TYPES = React.useMemo(() => {
+  // Đảm bảo gameType hiện tại luôn có trong list — dùng useEffect (không dùng useMemo để tránh lỗi thứ tự)
+  useEffect(() => {
     if (form.gameType && !dynamicGameTypes.includes(form.gameType)) {
-      return [...dynamicGameTypes, form.gameType];
+      setGameTypeList([...dynamicGameTypes, form.gameType]);
+    } else {
+      setGameTypeList(dynamicGameTypes);
     }
-    return dynamicGameTypes;
   }, [dynamicGameTypes, form.gameType]);
+
+  const GAME_TYPES = gameTypeList;
   const [stats, setStats] = useState([{ key: '', value: '' }]);
   const [images, setImages] = useState([]); // existing URLs
   const [newImages, setNewImages] = useState([]); // File objects
@@ -94,6 +98,7 @@ const AdminAccountForm = () => {
   };
 
   const uploadImages = async () => {
+    if (newImages.length === 0) return []; // Không có ảnh mới → bỏ qua
     const CLOUD_NAME = process.env.REACT_APP_CLOUDINARY_CLOUD_NAME;
     const UPLOAD_PRESET = process.env.REACT_APP_CLOUDINARY_UPLOAD_PRESET;
     if (!CLOUD_NAME || !UPLOAD_PRESET) {
@@ -117,7 +122,7 @@ const AdminAccountForm = () => {
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
+    if (e && e.preventDefault) e.preventDefault();
     if (!form.title || !form.price) { toast.error('Điền đầy đủ thông tin!'); return; }
     if (Number(form.price) <= 0) { toast.error('Giá bán phải lớn hơn 0!'); return; }
     // ✅ FIX: originalPrice phải >= price nếu có (giá gốc không thể thấp hơn giá bán)
