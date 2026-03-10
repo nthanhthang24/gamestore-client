@@ -1,14 +1,14 @@
 // src/pages/user/TopupPage.jsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { collection, query, where, orderBy, onSnapshot, getDocs, Timestamp } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, getDocs } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { useAuth } from '../../context/AuthContext';
 import { Wallet, CheckCircle, Clock, XCircle, Copy, QrCode, Building2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import './TopupPage.css';
 
-const SERVER_URL = process.env.REACT_APP_SERVER_URL || 'https://gamestore-server.onrender.com';
+const SERVER_URL = process.env.REACT_APP_SERVER_URL || 'https://gamestore-server-i20i.onrender.com';
 const AMOUNTS = [50000, 100000, 200000, 500000, 1000000, 2000000];
 
 const statusConfig = {
@@ -67,16 +67,14 @@ const TopupPage = () => {
     if (!amt || amt < 10000) { toast.error('Số tiền tối thiểu 10,000đ'); return; }
     // ✅ FIX: Giới hạn số lần tạo QR (max 50 triệu/lần nạp)
     if (amt > 50_000_000) { toast.error('Số tiền tối đa mỗi lần nạp là 50,000,000đ'); return; }
-    // ✅ FIX: Rate limit - max 5 pending topup trong 10 phút
-    const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000);
-    const recentPending = await getDocs(query(
+    // Rate limit đơn giản: max 3 topup pending cùng lúc (không cần composite index)
+    const pendingTopups = await getDocs(query(
       collection(db, 'topups'),
       where('userId', '==', currentUser.uid),
-      where('status', '==', 'pending'),
-      where('createdAt', '>=', Timestamp.fromDate(tenMinAgo))
+      where('status', '==', 'pending')
     ));
-    if (recentPending.size >= 5) {
-      toast.error('Bạn đã tạo quá nhiều yêu cầu nạp tiền. Vui lòng đợi 10 phút.', {
+    if (pendingTopups.size >= 3) {
+      toast.error('Bạn đang có 3 yêu cầu nạp tiền chưa xử lý. Vui lòng chờ các giao dịch hoàn tất.', {
         style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' }
       });
       return;
@@ -84,16 +82,30 @@ const TopupPage = () => {
 
     setLoading(true);
     try {
-      const res = await fetch(
-        `${SERVER_URL}/bank/vietqr?amount=${amt}&userId=${currentUser.uid}&userEmail=${encodeURIComponent(currentUser.email)}`
-      );
+      const url = `${SERVER_URL}/bank/vietqr?amount=${amt}&userId=${currentUser.uid}&userEmail=${encodeURIComponent(currentUser.email)}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        // Parse lỗi từ server
+        let errMsg = `Lỗi server (HTTP ${res.status})`;
+        try {
+          const errData = await res.json();
+          errMsg = errData.error || errMsg;
+        } catch {}
+        throw new Error(errMsg);
+      }
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Lỗi tạo QR');
+      if (!data.qrUrl) throw new Error('Server không trả về QR. Vui lòng thử lại.');
       setBankData({ ...data, amount: amt });
     } catch (err) {
-      toast.error(err.message, {
-        style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' }
-      });
+      // Network error (server đang ngủ / sai URL)
+      const isNetworkErr = err.message === 'Failed to fetch' || err.name === 'TypeError';
+      toast.error(
+        isNetworkErr
+          ? '⚠️ Không kết nối được server. Server có thể đang khởi động (30s), vui lòng thử lại.'
+          : err.message,
+        { duration: 6000, style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' } }
+      );
+      console.error('QR Error:', err.message, 'URL:', SERVER_URL);
     } finally { setLoading(false); }
   };
 

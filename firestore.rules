@@ -50,14 +50,16 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // ── Topups: user tạo và đọc của mình, admin đọc/approve/reject ──
+    // ── Topups: user đọc của mình, SERVER tạo (không có auth), admin approve ──
     match /topups/{topupId} {
       allow read: if isAuthenticated() &&
         (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated()
-        && request.resource.data.userId == request.auth.uid
-        && request.resource.data.status == 'pending'
-        && request.resource.data.amount > 0;
+      // ✅ Server (Render) tạo topup bằng API Key (không có Firebase Auth)
+      // Validate chặt: status phải là pending, amount > 0
+      allow create: if request.resource.data.status == 'pending'
+        && request.resource.data.amount > 0
+        && request.resource.data.userId is string
+        && request.resource.data.userId.size() > 0;
       allow update: if isAdmin();
       allow delete: if false;
     }
