@@ -1,5 +1,20 @@
 // src/App.js
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+
+// ── Wake up Render server khi user mở app ──────────────────────
+// Render free tier ngủ sau 15 phút không dùng.
+// Ping ngay khi load → server thức trước khi user cần nạp tiền.
+const SERVER_URL = process.env.REACT_APP_SERVER_URL || 'https://gamestore-server-i20i.onrender.com';
+function useServerWakeup() {
+  useEffect(() => {
+    // Ping lần đầu ngay khi mở app
+    const ping = () => fetch(`${SERVER_URL}/`, { method: 'GET' }).catch(() => {});
+    ping();
+    // Ping lại mỗi 4 phút để giữ server luôn tỉnh (Render sleep sau 15 phút)
+    const interval = setInterval(ping, 4 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+}
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -234,6 +249,8 @@ const UserLayout = ({ cart, addToCart, setCart }) => (
 );
 
 const AppContent = () => {
+  useServerWakeup(); // ✅ Ping server ngay khi app load → tránh delay 50s
+
   // ✅ FIX: Persist cart trong sessionStorage (tránh mất giỏ hàng khi F5)
   const [cart, setCart] = useState(() => {
     try {
