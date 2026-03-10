@@ -1,5 +1,5 @@
 // src/pages/user/TopupPage.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { collection, query, where, orderBy, onSnapshot, getDocs } from 'firebase/firestore';
 import { db } from '../../firebase/config';
@@ -25,7 +25,13 @@ const TopupPage = () => {
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState([]);
   const [bankData, setBankData] = useState(null);
+  const bankDataRef = useRef(null); // ← ref để closure trong onSnapshot luôn đọc được giá trị mới nhất
   const [copied, setCopied] = useState('');
+
+  // Sync ref mỗi khi bankData thay đổi
+  useEffect(() => {
+    bankDataRef.current = bankData;
+  }, [bankData]);
 
   // Realtime lịch sử + tự động detect khi được duyệt
   useEffect(() => {
@@ -39,9 +45,10 @@ const TopupPage = () => {
       const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setHistory(items);
 
-      // Nếu đang chờ và topup vừa được duyệt
-      if (bankData) {
-        const found = items.find(i => i.id === bankData.topupId);
+      // Dùng ref thay vì bankData để tránh stale closure
+      const current = bankDataRef.current;
+      if (current?.topupId) {
+        const found = items.find(i => i.id === current.topupId);
         if (found?.status === 'approved') {
           fetchUserProfile(currentUser.uid);
           setBankData(null);
@@ -53,7 +60,7 @@ const TopupPage = () => {
       }
     });
     return () => unsub();
-  }, [currentUser, bankData?.topupId]);
+  }, [currentUser]); // ← bỏ bankData?.topupId khỏi deps - listener không cần restart
 
   const handleCopy = (text, key) => {
     navigator.clipboard.writeText(text);
@@ -251,13 +258,24 @@ const BankModal = ({ data, onClose, onCopy, copied }) => (
       </div>
 
       {/* Thông tin TK */}
+      {data.method === 'va' && (
+        <div style={{ background: 'rgba(0,255,136,0.08)', border: '1px solid rgba(0,255,136,0.3)', borderRadius: 8, padding: '8px 12px', marginBottom: 10, fontSize: 12, color: 'var(--success)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          ✅ <strong>VA riêng</strong> — SePay tự động xác nhận, không cần nhập nội dung chuyển khoản
+        </div>
+      )}
+      {data.method === 'static' && (
+        <div style={{ background: 'rgba(255,71,87,0.08)', border: '1px solid rgba(255,71,87,0.3)', borderRadius: 8, padding: '8px 12px', marginBottom: 10, fontSize: 12, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          ⚠️ <strong>Bắt buộc nhập đúng nội dung</strong> chuyển khoản bên dưới để hệ thống nhận dạng
+        </div>
+      )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: 16 }}>
         {[
           { label: 'Ngân hàng', value: 'BIDV', key: 'bank' },
-          { label: 'Số tài khoản', value: data.accountNumber, key: 'acc' },
+          { label: data.method === 'va' ? '🔑 Số TK ảo (VA)' : 'Số tài khoản', value: data.accountNumber, key: 'acc', highlight: data.method === 'va' },
           { label: 'Chủ tài khoản', value: data.accountName, key: 'name' },
           { label: 'Số tiền', value: data.amount?.toLocaleString('vi-VN') + 'đ', key: 'amt' },
-          { label: '⚠️ Nội dung CK', value: data.transferContent, key: 'content', highlight: true },
+          ...(data.method !== 'va' ? [{ label: '⚠️ Nội dung CK', value: data.transferContent, key: 'content', highlight: true }] : []),
+          ...(data.expiredAt ? [{ label: '⏱ Hết hạn', value: new Date(data.expiredAt).toLocaleTimeString('vi-VN'), key: 'exp' }] : []),
         ].map(row => (
           <div key={row.key} className={`bank-row ${row.highlight ? 'highlight' : ''}`}>
             <span className="bank-label">{row.label}</span>
@@ -279,7 +297,9 @@ const BankModal = ({ data, onClose, onCopy, copied }) => (
         <div className="waiting-dot" style={{ background: '#0066cc', boxShadow: '0 0 0 0 rgba(0,102,204,0.4)' }} />
         <span>Đang chờ xác nhận từ SePay...</span>
         <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
-          Số dư tự động cộng sau 5-30 giây khi nhận được giao dịch
+          {data.method === 'va'
+            ? '✅ VA riêng — tự động xác nhận 5-15 giây sau chuyển khoản'
+            : '⚠️ Nhớ nhập đúng nội dung CK — tự động cộng 5-30 giây'}
         </span>
       </div>
     </div>
