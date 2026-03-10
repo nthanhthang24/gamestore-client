@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   collection, query, orderBy, getDocs,
-  doc, updateDoc, increment, serverTimestamp
+  doc, updateDoc, runTransaction, serverTimestamp
 } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { CheckCircle, XCircle, Clock, Wallet, RefreshCw } from 'lucide-react';
@@ -29,14 +29,21 @@ const AdminTopups = () => {
     if (!window.confirm(`Duyệt nạp ${topup.amount?.toLocaleString('vi-VN')}đ cho ${topup.userEmail}?`)) return;
     setProcessing(topup.id);
     try {
-      // Update topup status
-      await updateDoc(doc(db, 'topups', topup.id), {
-        status: 'approved',
-        approvedAt: serverTimestamp(),
-      });
-      // Add balance to user
-      await updateDoc(doc(db, 'users', topup.userId), {
-        balance: increment(topup.amount),
+      // ✅ FIX: Dùng runTransaction để chống double-approve và đảm bảo atomic
+      await runTransaction(db, async (transaction) => {
+        const topupRef = doc(db, 'topups', topup.id);
+        const topupSnap = await transaction.get(topupRef);
+        if (!topupSnap.exists()) throw new Error('Topup không tồn tại');
+        // ✅ Chặn duyệt lần 2 nếu đã approved
+        if (topupSnap.data().status !== 'pending') {
+          throw new Error(`Topup đã ở trạng thái "${topupSnap.data().status}", không thể duyệt lại`);
+        }
+        const userRef = doc(db, 'users', topup.userId);
+        const userSnap = await transaction.get(userRef);
+        if (!userSnap.exists()) throw new Error('User không tồn tại');
+        const currentBalance = userSnap.data().balance || 0;
+        transaction.update(topupRef, { status: 'approved', approvedAt: new Date() });
+        transaction.update(userRef, { balance: currentBalance + topup.amount });
       });
       setTopups(prev => prev.map(t => t.id === topup.id ? { ...t, status: 'approved' } : t));
       toast.success(`Đã duyệt +${topup.amount?.toLocaleString('vi-VN')}đ cho ${topup.userEmail}`, {
@@ -130,7 +137,7 @@ const AdminTopups = () => {
                   <th>Thời gian</th>
                   <th>Người dùng</th>
                   <th>Số tiền</th>
-                  <th>Nội dung CK</th>
+                  <th>Nội dung CK / Ref</th>
                   <th>Trạng thái</th>
                   <th>Thao tác</th>
                 </tr>
@@ -149,7 +156,7 @@ const AdminTopups = () => {
                       +{topup.amount?.toLocaleString('vi-VN')}đ
                     </td>
                     <td style={{ fontFamily: 'Share Tech Mono, monospace', fontSize: '12px', color: 'var(--text-secondary)', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {topup.note || '—'}
+                      {topup.transferContent || topup.content || topup.note || '—'}
                     </td>
                     <td>
                       {topup.status === 'pending' && <span className="badge badge-gold"><Clock size={11} /> Chờ duyệt</span>}

@@ -2,8 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import {
-  ShoppingCart, Bell, User, LogOut, Settings, Shield,
+import { Tag, Sword, ShoppingCart, Bell, User, LogOut, Settings, Shield,
   Menu, X, Search, Zap, ChevronDown, Wallet
 } from 'lucide-react';
 import './Navbar.css';
@@ -46,10 +45,11 @@ const Navbar = ({ cartCount = 0 }) => {
   };
 
   const navLinks = [
-    { label: 'Trang chủ', path: '/' },
-    { label: 'Cửa hàng', path: '/shop' },
-    { label: 'Nạp tiền', path: '/topup' },
-    { label: 'Hỗ trợ', path: '/support' },
+    { path: '/', label: 'Trang chủ' },
+    { path: '/shop', label: 'Cửa hàng' },
+    { path: '/services', label: 'Dịch vụ' },
+    { path: '/topup', label: 'Nạp tiền' },
+    { path: '/support', label: 'Hỗ trợ' },
   ];
 
   return (
@@ -128,6 +128,12 @@ const Navbar = ({ cartCount = 0 }) => {
                     </Link>
                     <Link to="/orders" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
                       <ShoppingCart size={15} /> Đơn hàng
+                    </Link>
+                    <Link to="/vouchers" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
+                      <Tag size={15} /> Voucher của tôi
+                    </Link>
+                    <Link to="/services" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
+                      <Sword size={15} /> Dịch vụ game
                     </Link>
                     {isAdmin && (
                       <Link to="/admin" className="dropdown-item admin" onClick={() => setDropdownOpen(false)}>

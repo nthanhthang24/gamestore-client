@@ -21,6 +21,7 @@ const AdminAccountForm = () => {
   const [form, setForm] = useState({
     title: '', gameType: 'LMHT', rank: '', price: '',
     originalPrice: '', description: '', status: 'available', featured: false,
+    loginUsername: '', loginPassword: '', loginEmail: '', loginNote: '',
   });
   const [stats, setStats] = useState([{ key: '', value: '' }]);
   const [images, setImages] = useState([]); // existing URLs
@@ -42,6 +43,8 @@ const AdminAccountForm = () => {
         rank: data.rank || '', price: data.price || '',
         originalPrice: data.originalPrice || '', description: data.description || '',
         status: data.status || 'available', featured: data.featured || false,
+        loginUsername: data.loginUsername || '', loginPassword: data.loginPassword || '',
+        loginEmail: data.loginEmail || '', loginNote: data.loginNote || '',
       });
       setImages(data.images || []);
       if (data.stats) {
@@ -95,6 +98,11 @@ const AdminAccountForm = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.title || !form.price) { toast.error('Điền đầy đủ thông tin!'); return; }
+    if (Number(form.price) <= 0) { toast.error('Giá bán phải lớn hơn 0!'); return; }
+    // ✅ FIX: originalPrice phải >= price nếu có (giá gốc không thể thấp hơn giá bán)
+    if (form.originalPrice && Number(form.originalPrice) < Number(form.price)) {
+      toast.error('Giá gốc phải >= giá bán!'); return;
+    }
 
     setLoading(true);
     try {
@@ -190,6 +198,38 @@ const AdminAccountForm = () => {
               <div className="form-group">
                 <label className="form-label">Mô tả chi tiết</label>
                 <textarea name="description" value={form.description} onChange={handleChange} className="form-textarea" placeholder="Mô tả chi tiết về tài khoản, bao gồm những skin nổi bật, lịch sử account..." rows="6" />
+              </div>
+            </div>
+          </div>
+
+          {/* Login Credentials - QUAN TRỌNG NHẤT */}
+          <div className="card" style={{ border: '1px solid var(--accent)', boxShadow: '0 0 12px rgba(0,212,255,0.1)' }}>
+            <h2 className="form-section-title" style={{ color: 'var(--accent)' }}>🔑 Thông tin đăng nhập tài khoản game</h2>
+            <p style={{ fontSize: '12px', color: 'var(--danger)', marginBottom: '16px', background: 'rgba(255,71,87,0.08)', padding: '8px 12px', borderRadius: 8 }}>
+              ⚠️ Đây là thông tin sẽ được giao cho người mua sau khi thanh toán thành công. Điền chính xác!
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div className="form-group">
+                  <label className="form-label">Tên đăng nhập / Username *</label>
+                  <input name="loginUsername" value={form.loginUsername} onChange={handleChange} className="form-input"
+                    placeholder="Tên đăng nhập game hoặc email" />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Mật khẩu *</label>
+                  <input name="loginPassword" value={form.loginPassword} onChange={handleChange} className="form-input"
+                    placeholder="Mật khẩu tài khoản" type="text" autoComplete="off" />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Email liên kết <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(nếu có)</span></label>
+                <input name="loginEmail" value={form.loginEmail} onChange={handleChange} className="form-input"
+                  placeholder="Email đăng ký tài khoản game" />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Ghi chú bàn giao <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(tuỳ chọn)</span></label>
+                <textarea name="loginNote" value={form.loginNote} onChange={handleChange} className="form-textarea"
+                  placeholder="VD: Mã OTP backup, câu hỏi bí mật, hướng dẫn đổi mật khẩu..." rows="3" />
               </div>
             </div>
           </div>

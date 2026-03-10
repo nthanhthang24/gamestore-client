@@ -139,3 +139,9 @@
   grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
+
+/* Flash sale card styling */
+.card-flash { border-color: rgba(255, 71, 87, 0.4) !important; }
+.card-flash:hover { border-color: rgba(255, 71, 87, 0.7) !important; }
+.discount-flash { background: linear-gradient(135deg, #ff4757, #ff6b35) !important; display: flex; align-items: center; gap: 3px; }
+.price-sale { color: #ff4757 !important; }

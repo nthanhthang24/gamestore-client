@@ -86,3 +86,15 @@
   .cart-layout { grid-template-columns: 1fr; }
   .cart-summary { position: static; }
 }
+
+/* ── Voucher styles ── */
+.voucher-box { padding: 16px; margin-top: 0; }
+.voucher-header { display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--gold); font-size: 14px; margin-bottom: 12px; font-family: 'Rajdhani', sans-serif; letter-spacing: 0.5px; }
+.voucher-input-row { display: flex; gap: 8px; }
+.voucher-input { flex: 1; font-family: 'Share Tech Mono', monospace; letter-spacing: 1px; text-transform: uppercase; }
+.voucher-applied { display: flex; align-items: center; gap: 10px; background: rgba(0, 212, 100, 0.08); border: 1px solid var(--success); border-radius: 8px; padding: 10px 12px; }
+.voucher-code-applied { font-family: 'Share Tech Mono', monospace; font-weight: 700; color: var(--accent); font-size: 15px; letter-spacing: 1px; }
+.voucher-desc { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.voucher-error { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--danger); margin-top: 8px; }
+.summary-discount { color: var(--success) !important; font-weight: 600; }
+.summary-discount span:first-child { display: flex; align-items: center; gap: 4px; }

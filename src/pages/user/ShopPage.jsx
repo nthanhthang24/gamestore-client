@@ -7,6 +7,8 @@ import AccountCard from '../../components/shared/AccountCard';
 import { Filter, SlidersHorizontal, Search, ChevronDown, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import './ShopPage.css';
+import { useFlashSale } from '../../hooks/useFlashSale';
+import { Flame } from 'lucide-react';
 
 const GAME_TYPES = ['Tất cả', 'LMHT', 'VALORANT', 'Free Fire', 'PUBG', 'Genshin Impact', 'Liên Quân', 'Mobile Legends', 'Clash of Clans'];
 const SORT_OPTIONS = [
@@ -35,6 +37,7 @@ const ShopPage = ({ onAddToCart }) => {
   const [gameType, setGameType] = useState('Tất cả');
   const [priceRange, setPriceRange] = useState(0);
   const [sortBy, setSortBy] = useState('newest');
+  const { activeFlashSale, getSalePrice } = useFlashSale();
 
   useEffect(() => { fetchAccounts(); }, []);
   useEffect(() => { applyFilters(); }, [accounts, searchTerm, gameType, priceRange, sortBy]);
@@ -64,7 +67,8 @@ const ShopPage = ({ onAddToCart }) => {
   };
 
   const handleAddToCart = (account) => {
-    onAddToCart?.(account);
+    const salePrice = activeFlashSale ? getSalePrice(account.price) : null;
+    onAddToCart?.({ ...account, salePrice: activeFlashSale && salePrice && salePrice < account.price ? salePrice : null });
     toast.success('Đã thêm vào giỏ hàng!', {
       style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' }
     });
@@ -78,6 +82,15 @@ const ShopPage = ({ onAddToCart }) => {
 
   return (
     <div className="shop-page page-wrapper">
+      {activeFlashSale && (
+        <div className="flash-sale-banner" style={{ background: `linear-gradient(135deg, ${activeFlashSale.color || '#ff4757'}, ${activeFlashSale.color || '#ff4757'}cc)` }}>
+          <div className="container fsb-inner">
+            <Flame size={18} className="fsb-icon" />
+            <span className="fsb-label">{activeFlashSale.label}</span>
+            <span className="fsb-badge">GIẢM {activeFlashSale.discount}%</span>
+          </div>
+        </div>
+      )}
       <div className="container">
         <div className="shop-header">
           <div>

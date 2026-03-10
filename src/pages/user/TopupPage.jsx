@@ -1,7 +1,7 @@
 // src/pages/user/TopupPage.jsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, getDocs, Timestamp } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { useAuth } from '../../context/AuthContext';
 import { Wallet, CheckCircle, Clock, XCircle, Copy, QrCode, Building2 } from 'lucide-react';
@@ -65,6 +65,22 @@ const TopupPage = () => {
     if (!currentUser) { navigate('/login'); return; }
     const amt = Number(amount);
     if (!amt || amt < 10000) { toast.error('Số tiền tối thiểu 10,000đ'); return; }
+    // ✅ FIX: Giới hạn số lần tạo QR (max 50 triệu/lần nạp)
+    if (amt > 50_000_000) { toast.error('Số tiền tối đa mỗi lần nạp là 50,000,000đ'); return; }
+    // ✅ FIX: Rate limit - max 5 pending topup trong 10 phút
+    const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000);
+    const recentPending = await getDocs(query(
+      collection(db, 'topups'),
+      where('userId', '==', currentUser.uid),
+      where('status', '==', 'pending'),
+      where('createdAt', '>=', Timestamp.fromDate(tenMinAgo))
+    ));
+    if (recentPending.size >= 5) {
+      toast.error('Bạn đã tạo quá nhiều yêu cầu nạp tiền. Vui lòng đợi 10 phút.', {
+        style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' }
+      });
+      return;
+    }
 
     setLoading(true);
     try {

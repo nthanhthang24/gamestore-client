@@ -6,12 +6,14 @@ import { db } from '../../firebase/config';
 import { useAuth } from '../../context/AuthContext';
 import { ShoppingCart, Shield, Clock, Eye, Star, ChevronLeft, ChevronRight, Zap, Award } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useFlashSale } from '../../hooks/useFlashSale';
 import './AccountDetailPage.css';
 
 const AccountDetailPage = ({ onAddToCart }) => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { currentUser } = useAuth();
+  const { getSalePrice, activeFlashSale } = useFlashSale(); // ✅ FIX: Flash sale trên detail page
   const [account, setAccount] = useState(null);
   const [loading, setLoading] = useState(true);
   const [currentImg, setCurrentImg] = useState(0);
@@ -25,7 +27,9 @@ const AccountDetailPage = ({ onAddToCart }) => {
       const snap = await getDoc(doc(db, 'accounts', id));
       if (snap.exists()) {
         setAccount({ id: snap.id, ...snap.data() });
+        try {
         await updateDoc(doc(db, 'accounts', id), { views: increment(1) });
+      } catch (_) { /* Guest không có quyền update - bỏ qua */ }
       }
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
@@ -33,7 +37,9 @@ const AccountDetailPage = ({ onAddToCart }) => {
 
   const handleBuyNow = () => {
     if (!currentUser) { navigate('/login'); return; }
-    onAddToCart?.(account);
+    // ✅ FIX: Truyền salePrice từ flash sale vào cart
+    const salePrice = activeFlashSale ? getSalePrice(account.price) : null;
+    onAddoCart?.({ ...account, salePrice: activeFlashSale && salePrice && salePrice < account.price ? salePrice : null });
     navigate('/cart');
   };
 
@@ -121,17 +127,29 @@ const AccountDetailPage = ({ onAddToCart }) => {
               </div>
             )}
 
-            {/* Price */}
+            {/* Price - ✅ FIX: show flash sale price */}
             <div className="detail-price-block">
               <div className="detail-price">
-                <span className="price" style={{ fontSize: '32px' }}>{account.price?.toLocaleString('vi-VN')}đ</span>
-                {account.originalPrice && (
-                  <span className="price-old" style={{ fontSize: '18px' }}>{account.originalPrice?.toLocaleString('vi-VN')}đ</span>
-                )}
-                {account.originalPrice && (
-                  <span className="badge badge-danger">
-                    -{Math.round((1 - account.price / account.originalPrice) * 100)}%
-                  </span>
+                {activeFlashSale ? (
+                  <>
+                    <span className="price" style={{ fontSize: '32px', color: 'var(--danger)' }}>
+                      {getSalePrice(account.price)?.toLocaleString('vi-VN')}đ
+                    </span>
+                    <span className="price-old" style={{ fontSize: '18px' }}>{account.price?.toLocaleString('vi-VN')}đ</span>
+                    <span className="badge badge-danger">🔥 -{activeFlashSale.discount}%</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="price" style={{ fontSize: '32px' }}>{account.price?.toLocaleString('vi-VN')}đ</span>
+                    {account.originalPrice && (
+                      <span className="price-old" style={{ fontSize: '18px' }}>{account.originalPrice?.toLocaleString('vi-VN')}đ</span>
+                    )}
+                    {account.originalPrice && (
+                      <span className="badge badge-danger">
+                        -{Math.round((1 - account.price / account.originalPrice) * 100)}%
+                      </span>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -148,7 +166,11 @@ const AccountDetailPage = ({ onAddToCart }) => {
               </button>
               <button
                 className="btn btn-ghost btn-lg"
-                onClick={() => { onAddToCart?.(account); toast.success('Đã thêm vào giỏ!', { style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' } }); }}
+                onClick={() => {
+                  const salePrice = activeFlashSale ? getSalePrice(account.price) : null;
+                  onAddoCart?.({ ...account, salePrice: activeFlashSale && salePrice && salePrice < account.price ? salePrice : null });
+                  toast.success('Đã thêm vào giỏ!', { style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' } });
+                }}
                 disabled={account.status === 'sold'}
               >
                 <ShoppingCart size={18} />

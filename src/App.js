@@ -14,11 +14,22 @@ import AdminLayout, { AdminOverview } from './pages/admin/AdminDashboard';
 import AdminAccounts from './pages/admin/AdminAccounts';
 import AdminAccountForm from './pages/admin/AdminAccountForm';
 import AdminTopups from './pages/admin/AdminTopups';
+import AdminVouchers from './pages/admin/AdminVouchers';
+import AdminServices from './pages/admin/AdminServices';
+import ServicesPage from './pages/user/ServicesPage';
+import MyVouchersPage from './pages/user/MyVouchersPage';
 import './index.css';
 
 const ProtectedRoute = ({ children, adminOnly = false }) => {
-  const { currentUser, userProfile } = useAuth();
+  const { currentUser, userProfile, loading } = useAuth();
+  // ✅ FIX: Chờ auth + profile load xong mới check — tránh redirect nhầm
+  if (loading) return (
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
+      <div className="spinner" />
+    </div>
+  );
   if (!currentUser) return <Navigate to="/login" />;
+  // ✅ FIX: Nếu adminOnly nhưng profile chưa load → đợi (đã handle bởi loading above)
   if (adminOnly && userProfile?.role !== 'admin') return <Navigate to="/" />;
   return children;
 };
@@ -39,10 +50,47 @@ const Footer = () => (
   </footer>
 );
 
-const AdminOrdersPage = () => (
-  <div><div className="admin-page-header"><h1 className="admin-page-title">Quản lý Đơn hàng</h1></div>
-  <div className="card"><p style={{ color: 'var(--text-secondary)', padding: '20px' }}>Danh sách đơn hàng.</p></div></div>
-);
+const AdminOrdersPage = () => {
+  const [orders, setOrders] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    import('firebase/firestore').then(({ collection, query, orderBy, getDocs }) => {
+      import('./firebase/config').then(({ db }) => {
+        getDocs(query(collection(db, 'orders'), orderBy('createdAt', 'desc')))
+          .then(snap => setOrders(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+          .catch(console.error).finally(() => setLoading(false));
+      });
+    });
+  }, []);
+
+  return (
+    <div>
+      <div className="admin-page-header"><h1 className="admin-page-title">Quản lý Đơn hàng</h1></div>
+      {loading ? <div style={{ textAlign: 'center', padding: '60px' }}><div className="spinner" /></div>
+      : orders.length === 0 ? <div className="card" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>Chưa có đơn hàng</div>
+      : (
+        <div className="table-wrap card">
+          <table className="admin-table">
+            <thead><tr><th>Mã đơn</th><th>Khách hàng</th><th>Items</th><th>Tổng tiền</th><th>Giảm giá</th><th>Thời gian</th></tr></thead>
+            <tbody>
+              {orders.map(o => (
+                <tr key={o.id}>
+                  <td style={{ fontFamily: 'monospace', fontSize: '12px' }}>#{o.id.slice(-8).toUpperCase()}</td>
+                  <td>{o.userEmail}</td>
+                  <td>{(o.items||[]).map(i => i.title).join(', ')}</td>
+                  <td style={{ fontWeight: 700, color: 'var(--gold)' }}>{o.total?.toLocaleString('vi-VN')}đ</td>
+                  <td style={{ color: 'var(--success)' }}>{o.discount > 0 ? `-${o.discount?.toLocaleString('vi-VN')}đ` : '—'}</td>
+                  <td style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{o.createdAt?.toDate?.()?.toLocaleString('vi-VN') || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
 const AdminUsersPage = () => (
   <div><div className="admin-page-header"><h1 className="admin-page-title">Quản lý Người dùng</h1></div>
   <div className="card"><p style={{ color: 'var(--text-secondary)', padding: '20px' }}>Danh sách người dùng.</p></div></div>
@@ -52,14 +100,97 @@ const AdminSettingsPage = () => (
   <div className="card"><p style={{ color: 'var(--text-secondary)', padding: '20px' }}>Cài đặt hệ thống.</p></div></div>
 );
 
-const UserOrdersPage = () => (
-  <div className="page-wrapper" style={{ padding: '30px 0 60px' }}>
-    <div className="container">
-      <h1 className="section-title" style={{ marginBottom: '28px' }}>Đơn hàng của tôi</h1>
-      <div className="card"><p style={{ color: 'var(--text-secondary)', padding: '20px', textAlign: 'center' }}>Lịch sử đơn hàng của bạn sẽ hiển thị tại đây.</p></div>
+const UserOrdersPage = () => {
+  const { currentUser } = useAuth();
+  const [orders, setOrders] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    if (!currentUser) return;
+    import('firebase/firestore').then(({ collection, query, where, orderBy, getDocs }) => {
+      import('./firebase/config').then(({ db }) => {
+        getDocs(query(collection(db, 'orders'),
+          where('userId', '==', currentUser.uid),
+          orderBy('createdAt', 'desc')
+        )).then(snap => {
+          setOrders(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        }).catch(console.error).finally(() => setLoading(false));
+      });
+    });
+  }, [currentUser]);
+
+  return (
+    <div className="page-wrapper" style={{ padding: '30px 0 60px' }}>
+      <div className="container">
+        <h1 className="section-title" style={{ marginBottom: '28px' }}>📦 Đơn hàng của tôi</h1>
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '60px' }}><div className="spinner" /></div>
+        ) : orders.length === 0 ? (
+          <div className="card" style={{ textAlign: 'center', padding: '60px' }}>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>📭</div>
+            <h2 style={{ marginBottom: '8px' }}>Chưa có đơn hàng nào</h2>
+            <p style={{ color: 'var(--text-muted)' }}>Hãy khám phá cửa hàng và mua tài khoản game!</p>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {orders.map(order => (
+              <div key={order.id} className="card" style={{ padding: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <div>
+                    <span style={{ fontFamily: 'Rajdhani', fontWeight: 700, color: 'var(--accent)' }}>
+                      #{order.id.slice(-8).toUpperCase()}
+                    </span>
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginLeft: '12px' }}>
+                      {order.createdAt?.toDate?.()?.toLocaleString('vi-VN') || '—'}
+                    </span>
+                  </div>
+                  <span className="badge badge-success">✅ Hoàn thành</span>
+                </div>
+                {(order.items || []).map((item, i) => (
+                  <div key={i} style={{ borderTop: '1px solid var(--border)', padding: '10px 0' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', marginBottom: item.loginUsername ? '8px' : 0 }}>
+                      <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
+                        {item.title} <span className="badge badge-accent" style={{ fontSize: '11px' }}>{item.gameType}</span>
+                      </span>
+                      <span style={{ fontWeight: 700, color: 'var(--gold)' }}>{item.price?.toLocaleString('vi-VN')}đ</span>
+                    </div>
+                    {/* ✅ Thông tin đăng nhập tài khoản game */}
+                    {item.loginUsername && (
+                      <div style={{ background: 'rgba(0,212,255,0.06)', border: '1px solid rgba(0,212,255,0.2)', borderRadius: 8, padding: '10px 14px', fontSize: '13px' }}>
+                        <div style={{ color: 'var(--accent)', fontWeight: 600, marginBottom: 6, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          🔑 Thông tin đăng nhập
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                          <div><span style={{ color: 'var(--text-muted)', fontSize: 11 }}>Username:</span><br/><strong style={{ fontFamily: 'monospace' }}>{item.loginUsername}</strong></div>
+                          <div><span style={{ color: 'var(--text-muted)', fontSize: 11 }}>Password:</span><br/><strong style={{ fontFamily: 'monospace', color: 'var(--accent)' }}>{item.loginPassword}</strong></div>
+                          {item.loginEmail && <div style={{ gridColumn: '1/-1' }}><span style={{ color: 'var(--text-muted)', fontSize: 11 }}>Email:</span><br/><strong style={{ fontFamily: 'monospace' }}>{item.loginEmail}</strong></div>}
+                          {item.loginNote && <div style={{ gridColumn: '1/-1' }}><span style={{ color: 'var(--text-muted)', fontSize: 11 }}>Ghi chú:</span><br/><span style={{ color: 'var(--text-secondary)' }}>{item.loginNote}</span></div>}
+                        </div>
+                      </div>
+                    )}
+                    {!item.loginUsername && (
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                        Thông tin đăng nhập sẽ được admin liên hệ qua email.
+                      </div>
+                    )}
+                  </div>
+                ))}
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--border)' }}>
+                  <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
+                    {order.discount > 0 && `Giảm: -${order.discount?.toLocaleString('vi-VN')}đ`}
+                  </span>
+                  <span style={{ fontFamily: 'Rajdhani', fontSize: '20px', fontWeight: 700, color: 'var(--accent)' }}>
+                    Tổng: {order.total?.toLocaleString('vi-VN')}đ
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 const SupportPage = () => (
   <div className="page-wrapper" style={{ padding: '30px 0 60px' }}>
@@ -94,16 +225,33 @@ const UserLayout = ({ cart, addToCart, setCart }) => (
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/orders" element={<ProtectedRoute><UserOrdersPage /></ProtectedRoute>} />
+      <Route path="/vouchers" element={<ProtectedRoute><MyVouchersPage /></ProtectedRoute>} />
       <Route path="/support" element={<SupportPage />} />
+      <Route path="/services" element={<ServicesPage />} />
     </Routes>
     <Footer />
   </>
 );
 
 const AppContent = () => {
-  const [cart, setCart] = useState([]);
+  // ✅ FIX: Persist cart trong sessionStorage (tránh mất giỏ hàng khi F5)
+  const [cart, setCart] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem('gs_cart');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+
+  const setCartPersist = (updater) => {
+    setCart(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      try { sessionStorage.setItem('gs_cart', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+
   const addToCart = (account) =>
-    setCart(prev => prev.find(i => i.id === account.id) ? prev : [...prev, account]);
+    setCartPersist(prev => prev.find(i => i.id === account.id) ? prev : [...prev, account]);
 
   return (
     <Router>
@@ -118,10 +266,12 @@ const AppContent = () => {
           <Route path="accounts/edit/:id" element={<AdminAccountForm />} />
           <Route path="orders" element={<AdminOrdersPage />} />
           <Route path="topups" element={<AdminTopups />} />
+          <Route path="vouchers" element={<AdminVouchers />} />
+          <Route path="services" element={<AdminServices />} />
           <Route path="users" element={<AdminUsersPage />} />
           <Route path="settings" element={<AdminSettingsPage />} />
         </Route>
-        <Route path="/*" element={<UserLayout cart={cart} addToCart={addToCart} setCart={setCart} />} />
+        <Route path="/*" element={<UserLayout cart={cart} addToCart={addToCart} setCart={setCartPersist} />} />
       </Routes>
     </Router>
   );

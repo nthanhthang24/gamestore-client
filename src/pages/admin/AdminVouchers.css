@@ -1,0 +1,42 @@
+/* AdminVouchers.css */
+.admin-vouchers { padding: 0; }
+.av-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 24px; }
+.av-title { font-size: 22px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 10px; margin: 0; font-family: 'Rajdhani', sans-serif; }
+.av-tabs { display: flex; gap: 4px; background: var(--bg-primary); border-radius: 10px; padding: 4px; }
+.av-tab { background: none; border: none; color: var(--text-muted); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; display: flex; align-items: center; gap: 6px; transition: all 0.2s; font-weight: 600; }
+.av-tab.active { background: var(--accent); color: #000; }
+.av-toolbar { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+.av-form { padding: 24px; margin-bottom: 24px; border: 1px solid var(--accent); }
+.av-form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+.av-list { display: flex; flex-direction: column; gap: 10px; }
+.av-item { display: flex; align-items: center; gap: 16px; padding: 14px 18px; flex-wrap: wrap; transition: opacity 0.2s; }
+.av-item.inactive { opacity: 0.5; }
+.av-item-code { display: flex; align-items: center; gap: 8px; min-width: 160px; }
+.av-code { font-family: 'Share Tech Mono', monospace; font-size: 16px; font-weight: 700; color: var(--accent); letter-spacing: 1px; }
+.av-value { font-size: 18px; font-weight: 700; color: var(--gold); display: flex; align-items: center; gap: 4px; font-family: 'Rajdhani', sans-serif; }
+.av-item-info { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.av-meta { font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 4px; }
+.av-item-stats { display: flex; flex-direction: column; gap: 4px; min-width: 100px; }
+.av-used { font-size: 13px; color: var(--text-secondary); font-weight: 600; }
+.av-expires { font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 4px; }
+.av-item-actions { display: flex; gap: 6px; }
+.av-loading, .av-empty { text-align: center; padding: 48px; color: var(--text-muted); font-size: 14px; }
+.av-fs-preview { padding: 8px 14px; border-radius: 8px; color: #fff; font-weight: 800; font-size: 15px; display: flex; align-items: center; gap: 6px; min-width: 100px; justify-content: center; font-family: 'Rajdhani', sans-serif; letter-spacing: 1px; }
+@media (max-width: 600px) {
+  .av-form-grid { grid-template-columns: 1fr; }
+  .av-item { flex-direction: column; align-items: flex-start; }
+}
+
+/* ── Bulk Discount ── */
+.bulk-howto { padding: 14px 18px; margin-bottom: 16px; background: rgba(0,212,255,0.05); border-color: rgba(0,212,255,0.2); font-size: 13px; color: var(--text-secondary); }
+.bulk-howto-title { font-weight: 700; color: var(--accent); font-family: 'Rajdhani',sans-serif; display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.bulk-preview { background: rgba(0,212,255,0.08); border: 1px dashed var(--accent); border-radius: 8px; padding: 10px 14px; font-size: 14px; color: var(--text-primary); display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.bulk-rules-list {}
+.bulk-tiers { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+.bulk-tier { background: var(--bg-primary); border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; text-align: center; min-width: 120px; flex: 1; border-top: 3px solid var(--tier-color, var(--accent)); transition: opacity 0.2s; }
+.bulk-tier.tier-inactive { opacity: 0.4; }
+.tier-qty { font-size: 12px; color: var(--text-muted); display: flex; align-items: center; justify-content: center; gap: 5px; margin-bottom: 6px; }
+.tier-pct { font-size: 28px; font-weight: 800; color: var(--tier-color, var(--accent)); font-family: 'Rajdhani',sans-serif; line-height: 1; }
+.tier-label { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+.bulk-rule-range { min-width: 100px; display: flex; align-items: center; }
+.bulk-qty-badge { font-family: 'Rajdhani',sans-serif; font-size: 20px; font-weight: 800; color: var(--text-primary); background: var(--bg-primary); padding: 4px 12px; border-radius: 8px; border: 1px solid var(--border); }

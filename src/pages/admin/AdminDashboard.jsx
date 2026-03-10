@@ -7,7 +7,7 @@ import { useAuth } from '../../context/AuthContext';
 import {
   LayoutDashboard, Package, ShoppingBag, Users, Settings,
   TrendingUp, DollarSign, Eye, Plus, ChevronRight,
-  Zap, Shield, Menu, X, LogOut, Wallet
+  Zap, Shield, Menu, X, LogOut, Wallet, Tag, Sword
 } from 'lucide-react';
 import './AdminDashboard.css';
 
@@ -21,6 +21,8 @@ const AdminLayout = () => {
     { path: '/admin/accounts', icon: <Package size={18} />, label: 'Quản lý Account' },
     { path: '/admin/orders', icon: <ShoppingBag size={18} />, label: 'Đơn hàng' },
     { path: '/admin/topups', icon: <Wallet size={18} />, label: 'Nạp tiền' },
+    { path: '/admin/vouchers', icon: <Tag size={18} />, label: 'Voucher & Sale' },
+    { path: '/admin/services', icon: <Sword size={18} />, label: 'Dịch vụ Game' },
     { path: '/admin/users', icon: <Users size={18} />, label: 'Người dùng' },
     { path: '/admin/settings', icon: <Settings size={18} />, label: 'Cài đặt' },
   ];

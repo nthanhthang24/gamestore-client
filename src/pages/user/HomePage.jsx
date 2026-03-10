@@ -10,6 +10,8 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import './HomePage.css';
+import { useFlashSale } from '../../hooks/useFlashSale';
+import { Flame } from 'lucide-react';
 
 const GAME_TYPES = [
   { id: 'all', label: 'Tất cả', icon: <Gamepad2 size={18} /> },
@@ -33,6 +35,7 @@ const HomePage = ({ onAddToCart }) => {
   const [newAccounts, setNewAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeType, setActiveType] = useState('all');
+  const { activeFlashSale, getSalePrice } = useFlashSale();
 
   useEffect(() => {
     fetchAccounts();
@@ -58,7 +61,8 @@ const HomePage = ({ onAddToCart }) => {
   };
 
   const handleAddToCart = (account) => {
-    onAddToCart?.(account);
+    const salePrice = activeFlashSale ? getSalePrice(account.price) : null;
+    onAddToCart?.({ ...account, salePrice: activeFlashSale && salePrice && salePrice < account.price ? salePrice : null });
     toast.success('Đã thêm vào giỏ hàng!', {
       style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' }
     });
@@ -66,6 +70,22 @@ const HomePage = ({ onAddToCart }) => {
 
   return (
     <div className="home-page">
+      {/* Flash Sale Banner */}
+      {activeFlashSale && (
+        <div className="flash-sale-banner" style={{ background: `linear-gradient(135deg, ${activeFlashSale.color || '#ff4757'}, ${activeFlashSale.color || '#ff4757'}cc)` }}>
+          <div className="container fsb-inner">
+            <Flame size={20} className="fsb-icon" />
+            <span className="fsb-label">{activeFlashSale.label}</span>
+            <span className="fsb-badge">GIẢM {activeFlashSale.discount}%</span>
+            {activeFlashSale.endAt && (
+              <span className="fsb-ends">
+                Kết thúc: {new Date(activeFlashSale.endAt?.toDate?.() || activeFlashSale.endAt).toLocaleString('vi-VN')}
+              </span>
+            )}
+            <Link to="/shop" className="fsb-cta">Mua ngay →</Link>
+          </div>
+        </div>
+      )}
       {/* Hero Section */}
       <section className="hero-section">
         <div className="hero-bg">
