@@ -14,12 +14,18 @@ service cloud.firestore {
       allow read: if true;
       allow create, delete: if isAdmin();
       allow update: if isAdmin()
+        // View count increment
         || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['views']) &&
             request.resource.data.views == resource.data.views + 1)
+        // Checkout: cộng soldCount + tuỳ chọn đổi status → 'sold' (atomic transaction)
         || (isAuthenticated() &&
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
-            resource.data.status == 'available' &&
-            request.resource.data.status == 'sold');
+            request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['soldCount', 'status']) &&
+            resource.data.status == 'available')
+        // Chỉ soldCount (chưa hết stock)
+        || (isAuthenticated() &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['soldCount']) &&
+            resource.data.status == 'available');
     }
 
     // ── Users ──────────────────────────────────────────────────────────
