@@ -37,10 +37,14 @@ service cloud.firestore {
         && request.resource.data.role == 'user'
         && request.resource.data.balance == 0;
       allow update: if isAdmin()
-        // User tự update (không được đổi balance/role)
+        // User tự update profile (không được đổi balance/role)
         || (isOwner(userId) &&
             !request.resource.data.diff(resource.data)
               .affectedKeys().hasAny(['balance', 'role', 'uid', 'createdAt']))
+        // ✅ User mới nhận referral bonus — chỉ tăng balance, không giảm
+        || (isOwner(userId) &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance']) &&
+            request.resource.data.balance > resource.data.balance)
         // ✅ Server (webhook) cộng balance - chỉ được update balance + updatedAt
         || (!isAuthenticated() &&
             request.resource.data.diff(resource.data).affectedKeys()
@@ -92,8 +96,10 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow create, delete: if isAdmin();
       allow update: if isAdmin()
+        // User dùng voucher: chỉ được tăng usedCount và thêm email vào usedBy
         || (isAuthenticated() &&
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usedCount']) &&
+            request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['usedCount', 'usedBy']) &&
             request.resource.data.usedCount == resource.data.usedCount + 1);
     }
 
