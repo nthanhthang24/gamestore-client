@@ -41,7 +41,9 @@ import WishlistPage from './pages/user/WishlistPage';
 import ReferralPage from './pages/user/ReferralPage';
 import AdminTickets from './pages/admin/AdminTickets';
 import AdminAuditLog from './pages/admin/AdminAuditLog';
+import AdminNotifications from './pages/admin/AdminNotifications';
 import OrderDetailPage from './pages/user/OrderDetailPage';
+import NotificationsPage from './pages/user/NotificationsPage';
 import { useWishlist } from './hooks/useWishlist';
 import { useSEO } from './hooks/useSEO';
 import { logAudit } from './utils/auditLog';
@@ -514,47 +516,12 @@ const AdminSettingsPage = () => {
       </div>
 
       <div className="card" style={{ padding: 24 }}>
-        <h3 style={{ marginBottom: 16, color: 'var(--accent)' }}>📧 Email Notification</h3>
-        <div style={{fontSize:13,color:'var(--text-secondary)',lineHeight:2,marginBottom:16}}>
-          <div>Email tự động gửi khi: mua hàng thành công, nạp tiền duyệt, admin phản hồi ticket.</div>
-          <div>Cấu hình tại Firebase Console → Functions → Environment variables:</div>
-          <code style={{display:'block',padding:'10px 14px',background:'var(--bg-primary)',borderRadius:8,fontSize:12,marginTop:8,fontFamily:'monospace',lineHeight:1.8,color:'var(--text-primary)'}}>
-            {'SMTP_HOST=smtp.gmail.com'}<br/>
-            {'SMTP_PORT=587'}<br/>
-            {'SMTP_USER=your@gmail.com'}<br/>
-            {'SMTP_PASS=app-password'}<br/>
-            {'EMAIL_FROM=GameStore VN <noreply@yourdomain.vn>'}
-          </code>
-          <div style={{marginTop:8}}>Hoặc dùng <strong>SENDGRID_API_KEY</strong> thay thế SMTP.</div>
-        </div>
-        <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
-          <input className="form-input" id="test-email-to" placeholder="Email nhận test" style={{flex:1,minWidth:200}} defaultValue={settings.supportEmail}/>
-          <select className="form-input" id="test-email-type" style={{width:130}}>
-            <option value="topup">Nạp tiền</option>
-            <option value="order">Đơn hàng</option>
-          </select>
-          <button className="btn btn-ghost btn-sm" onClick={async()=>{
-            const to = document.getElementById('test-email-to')?.value;
-            const type = document.getElementById('test-email-type')?.value||'topup';
-            if (!to) { import('react-hot-toast').then(({default:t})=>t.error('Nhập email')); return; }
-            try {
-              const {getFunctions,httpsCallable} = await import('firebase/functions');
-              const {app} = await import('./firebase/config');
-              const fn = httpsCallable(getFunctions(app),'sendTestEmail');
-              await fn({to,type});
-              import('react-hot-toast').then(({default:t})=>t.success('Email test đã gửi tới '+to));
-            } catch(e) { import('react-hot-toast').then(({default:t})=>t.error('Lỗi: '+e.message)); }
-          }}>📤 Gửi test</button>
-        </div>
-      </div>
-
-      <div className="card" style={{ padding: 24 }}>
         <h3 style={{ marginBottom: 16, color: 'var(--accent)' }}>📊 Thông tin hệ thống</h3>
         <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 2 }}>
           <div>🔧 Stack: React 18 + Firebase Firestore + Cloudinary</div>
           <div>🚀 Deploy: Vercel (Frontend) + Render (Backend)</div>
           <div>💳 Payment: BIDV via SePay webhook</div>
-          <div>⚡ Version: 2.2.0-sprint10</div>
+          <div>⚡ Version: 2.3.0-sprint13</div>
         </div>
       </div>
     </div>
@@ -1198,6 +1165,7 @@ const UserLayout = ({ cart, addToCart, setCart }) => (
       <Route path="/terms" element={<TermsPage />} />
       <Route path="/wishlist" element={<ProtectedRoute><WishlistPage onAddToCart={addToCart} /></ProtectedRoute>} />
       <Route path="/referral" element={<ProtectedRoute><ReferralPage /></ProtectedRoute>} />
+      <Route path="/notifications" element={<ProtectedRoute><NotificationsPage /></ProtectedRoute>} />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
     <Footer />
@@ -1354,6 +1322,7 @@ const AppContent = () => {
           <Route path="audit-log" element={<AdminAuditLog />} />
           <Route path="bulk-import" element={<AdminBulkImport />} />
           <Route path="ratings" element={<AdminRatings />} />
+          <Route path="notifications" element={<AdminNotifications />} />
         </Route>
         <Route path="/*" element={<UserLayout cart={cart} addToCart={addToCart} setCart={setCartPersist} />} />
       </Routes>

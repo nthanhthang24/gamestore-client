@@ -1,0 +1,205 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() { return request.auth != null; }
+    function isOwner(userId)   { return isAuthenticated() && request.auth.uid == userId; }
+    function isAdmin() {
+      return isAuthenticated() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // ── Accounts ──────────────────────────────────────────────────────
+    match /accounts/{accountId} {
+      allow read: if true;
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin()
+        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['views']) &&
+            request.resource.data.views == resource.data.views + 1)
+        || (isAuthenticated() &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
+            resource.data.status == 'available' &&
+            request.resource.data.status == 'sold');
+    }
+
+    // ── Users ──────────────────────────────────────────────────────────
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin()
+        // ✅ Server đọc user để cộng balance (webhook không có auth)
+        || !isAuthenticated();
+      allow create: if isAuthenticated() && isOwner(userId)
+        && request.resource.data.role == 'user'
+        && request.resource.data.balance == 0;
+      allow update: if isAdmin()
+        // User tự update (không được đổi balance/role)
+        || (isOwner(userId) &&
+            !request.resource.data.diff(resource.data)
+              .affectedKeys().hasAny(['balance', 'role', 'uid', 'createdAt']))
+        // ✅ Server (webhook) cộng balance - chỉ được update balance + updatedAt
+        || (!isAuthenticated() &&
+            request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['balance', 'updatedAt']));
+    }
+
+    // ── Orders ────────────────────────────────────────────────────────
+    match /orders/{orderId} {
+      allow read: if isAuthenticated() &&
+        (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'completed'
+        && request.resource.data.paymentMethod == 'balance'
+        && request.resource.data.total >= 0;
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+
+    // ── Topups ────────────────────────────────────────────────────────
+    match /topups/{topupId} {
+      // User đọc của mình, admin đọc tất, server đọc để xử lý webhook
+      allow read: if true;
+      // ✅ Server tạo topup (không có auth)
+      allow create: if request.resource.data.status == 'pending'
+        && request.resource.data.amount > 0
+        && request.resource.data.userId is string
+        && request.resource.data.userId.size() > 0;
+      // ✅ Admin approve thủ công + server auto-approve qua webhook
+      allow update: if isAdmin()
+        || (!isAuthenticated() &&
+            request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['status','autoApproved','sePayId','gateway','referenceCode','approvedAt']));
+      allow delete: if false;
+    }
+
+    // ── Transactions ──────────────────────────────────────────────────
+    match /transactions/{id} {
+      allow read: if isAuthenticated() &&
+        (resource.data.userId == request.auth.uid || isAdmin());
+      // ✅ Server ghi transactions (webhook, không có auth)
+      allow create: if !isAuthenticated()
+        || isAdmin();
+      allow update, delete: if false;
+    }
+
+    // ── Vouchers ──────────────────────────────────────────────────────
+    match /vouchers/{voucherId} {
+      allow read: if isAuthenticated();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin()
+        || (isAuthenticated() &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usedCount']) &&
+            request.resource.data.usedCount == resource.data.usedCount + 1);
+    }
+
+    // ── Game Types: public read, admin write ─────────────────────────────
+    match /gameTypes/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ── Flash Sales ───────────────────────────────────────────────────
+    match /flashSales/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ── Bulk Discount Rules ───────────────────────────────────────────
+    match /bulkDiscountRules/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // ── Services ──────────────────────────────────────────────────────
+    match /services/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ── Service Orders ────────────────────────────────────────────────
+    match /serviceOrders/{id} {
+      allow read: if isAuthenticated() &&
+        (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'pending';
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+
+    // ── Unmatched Topups ──────────────────────────────────────────────
+    match /unmatchedTopups/{id} {
+      allow read: if isAdmin();
+      // ✅ Server ghi khi không match được giao dịch
+      allow create: if true;
+      allow update, delete: if isAdmin();
+    }
+
+    // ── Processed Webhooks (chống duplicate) ─────────────────────────
+    match /processedWebhooks/{id} {
+      allow read: if isAdmin() || !isAuthenticated();
+      allow create: if true;
+      allow update, delete: if false;
+    }
+
+    // ── Notifications ─────────────────────────────────────────────────
+    match /notifications/{id} {
+      // User đọc thông báo active; admin đọc tất cả
+      allow read: if isAuthenticated();
+      // Admin tạo/xoá/toggle active
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin()
+        // User chỉ được cập nhật field 'read' (đánh dấu đã đọc)
+        || (isAuthenticated() &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']));
+    }
+
+    // ── Tickets ───────────────────────────────────────────────────────
+    match /tickets/{id} {
+      allow read: if isAuthenticated() &&
+        (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'open';
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+
+    // ── Referrals ─────────────────────────────────────────────────────
+    match /referrals/{id} {
+      allow read: if isAuthenticated() &&
+        (resource.data.newUserId == request.auth.uid ||
+         resource.data.referrerId == request.auth.uid || isAdmin());
+      // User tạo referral record khi đăng ký
+      allow create: if isAuthenticated();
+      // Admin update (credited) hoặc system (webhook)
+      allow update: if isAdmin() || !isAuthenticated();
+      allow delete: if false;
+    }
+
+    // ── Ratings ───────────────────────────────────────────────────────
+    match /ratings/{id} {
+      allow read: if true;
+      allow create: if isAuthenticated()
+        && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    // ── Settings ──────────────────────────────────────────────────────
+    match /settings/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ── Wishlists ─────────────────────────────────────────────────────
+    match /wishlists/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // ── Audit Log ─────────────────────────────────────────────────────
+    match /auditLogs/{id} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated();
+      allow update, delete: if false;
+    }
+  }
+}

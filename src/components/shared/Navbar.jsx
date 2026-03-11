@@ -3,9 +3,20 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Tag, Sword, ShoppingCart, Bell, User, LogOut, Settings, Shield, Sun, Moon,
-  Menu, X, Search, Zap, ChevronDown, Wallet, Heart, Gift
+  Menu, X, Search, Zap, ChevronDown, Wallet, Heart, Gift,
+  Info, CheckCircle, AlertTriangle
 } from 'lucide-react';
+import { collection, query, where, orderBy, onSnapshot, doc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { db } from '../../firebase/config';
 import './Navbar.css';
+
+const TYPE_COLOR = {
+  info: 'var(--accent)', success: 'var(--success)', warning: 'var(--gold)', promo: '#c084fc'
+};
+const TYPE_ICON = {
+  info: <Info size={13}/>, success: <CheckCircle size={13}/>,
+  warning: <AlertTriangle size={13}/>, promo: <Zap size={13}/>
+};
 
 const Navbar = ({ cartCount = 0 }) => {
   const { currentUser, userProfile, logout } = useAuth();
@@ -24,7 +35,9 @@ const Navbar = ({ cartCount = 0 }) => {
     localStorage.setItem('theme', theme);
   }, [theme]);
   const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark');
-  const [notifications, setNotifications] = useState([]);
+
+  // ── NEW: System notifications ──────────────────────────────
+  const [sysNotifications, setSysNotifications] = useState([]);
   const dropdownRef = useRef(null);
   const bellRef = useRef(null);
 
@@ -33,30 +46,44 @@ const Navbar = ({ cartCount = 0 }) => {
   // Realtime: count open tickets for current user
   useEffect(() => {
     if (!currentUser) return;
-    import('firebase/firestore').then(({ collection, query, where, onSnapshot }) =>
-      import('../../firebase/config').then(({ db }) => {
-        const q = query(collection(db,'tickets'), where('userId','==',currentUser.uid), where('status','==','open'));
-        const unsub = onSnapshot(q, snap => setOpenTickets(snap.size), ()=>{});
-        return unsub;
-      })
-    ).then(unsub => unsub && (unsub._cleanup = unsub));
+    const q = query(collection(db,'tickets'), where('userId','==',currentUser.uid), where('status','==','open'));
+    const unsub = onSnapshot(q, snap => setOpenTickets(snap.size), ()=>{});
+    return unsub;
   }, [currentUser?.uid]);
 
-  // Realtime: recent orders for notification
+  // Realtime: system notifications for this user
   useEffect(() => {
     if (!currentUser) return;
-    import('firebase/firestore').then(({ collection, query, where, orderBy, limit, onSnapshot }) =>
-      import('../../firebase/config').then(({ db }) => {
-        try {
-          const q = query(collection(db,'orders'), where('userId','==',currentUser.uid), orderBy('createdAt','desc'), limit(3));
-          const unsub = onSnapshot(q, snap => {
-            setNotifications(snap.docs.map(d => ({ id:d.id, ...d.data() })));
-          }, ()=>{});
-          return unsub;
-        } catch { return ()=>{}; }
-      })
+    const q = query(
+      collection(db, 'notifications'),
+      where('active', '==', true),
+      orderBy('createdAt', 'desc')
     );
+    const unsub = onSnapshot(q, snap => {
+      const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const mine = all.filter(n =>
+        n.targetAll ||
+        n.targetUserId === currentUser.uid ||
+        n.targetUserId === currentUser.email
+      ).slice(0, 10);
+      setSysNotifications(mine);
+    }, () => {});
+    return unsub;
   }, [currentUser?.uid]);
+
+  const isRead = (n) => (n.read || []).includes(currentUser?.uid);
+  const unreadCount = sysNotifications.filter(n => !isRead(n)).length;
+
+  const markRead = async (n) => {
+    if (!currentUser || isRead(n)) return;
+    updateDoc(doc(db, 'notifications', n.id), { read: arrayUnion(currentUser.uid) }).catch(() => {});
+  };
+
+  const markAllRead = async () => {
+    sysNotifications.filter(n => !isRead(n)).forEach(n =>
+      updateDoc(doc(db, 'notifications', n.id), { read: arrayUnion(currentUser.uid) }).catch(() => {})
+    );
+  };
 
   useEffect(() => {
     const handler = (e) => {
@@ -145,32 +172,75 @@ const Navbar = ({ cartCount = 0 }) => {
               <div className="user-dropdown" ref={bellRef} style={{position:'relative'}}>
                 <button className="nav-icon-btn" onClick={()=>setBellOpen(p=>!p)} style={{position:'relative'}}>
                   <Bell size={18} />
-                  {openTickets > 0 && <span className="cart-badge" style={{background:'var(--gold)'}}>{openTickets}</span>}
+                  {(unreadCount + openTickets) > 0 && (
+                    <span className="cart-badge" style={{background: unreadCount > 0 ? 'var(--accent)' : 'var(--gold)'}}>
+                      {unreadCount + openTickets}
+                    </span>
+                  )}
                 </button>
                 {bellOpen && (
-                  <div className="dropdown-menu" style={{minWidth:300,right:0,left:'auto'}}>
-                    <div className="dropdown-header">
+                  <div className="dropdown-menu" style={{minWidth:320,right:0,left:'auto',maxHeight:480,overflowY:'auto'}}>
+                    <div className="dropdown-header" style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                       <span className="dropdown-name">🔔 Thông báo</span>
+                      {unreadCount > 0 && (
+                        <button onClick={markAllRead}
+                          style={{fontSize:11,color:'var(--accent)',background:'none',border:'none',cursor:'pointer',padding:0}}>
+                          Đọc tất cả
+                        </button>
+                      )}
                     </div>
                     <div className="dropdown-divider"/>
+
+                    {/* Open tickets alert */}
                     {openTickets > 0 && (
-                      <Link to="/orders" className="dropdown-item" onClick={()=>setBellOpen(false)}
-                        style={{color:'var(--gold)'}}>
-                        <Shield size={15}/> {openTickets} ticket đang chờ xử lý
+                      <Link to="/support" className="dropdown-item" onClick={()=>setBellOpen(false)}
+                        style={{color:'var(--gold)',gap:8}}>
+                        <Shield size={14}/> {openTickets} ticket đang chờ xử lý
                       </Link>
                     )}
-                    {notifications.slice(0,3).map(n=>(
-                      <Link key={n.id} to={`/orders/${n.id}`} className="dropdown-item"
-                        onClick={()=>setBellOpen(false)} style={{fontSize:12}}>
-                        <ShoppingCart size={13}/> Đơn #{n.id.slice(-6).toUpperCase()} · {n.total?.toLocaleString('vi-VN')}đ
-                      </Link>
-                    ))}
-                    {notifications.length===0 && openTickets===0 && (
-                      <div style={{padding:'14px 16px',fontSize:13,color:'var(--text-muted)',textAlign:'center'}}>Không có thông báo</div>
+
+                    {/* System notifications */}
+                    {sysNotifications.slice(0,5).map(n => {
+                      const read = isRead(n);
+                      return (
+                        <div key={n.id}
+                          className="dropdown-item"
+                          onClick={() => { markRead(n); setBellOpen(false); navigate('/notifications'); }}
+                          style={{
+                            flexDirection:'column', alignItems:'flex-start', gap:3, cursor:'pointer',
+                            background: read ? 'transparent' : `${TYPE_COLOR[n.type] || 'var(--accent)'}08`,
+                            borderLeft: read ? 'none' : `3px solid ${TYPE_COLOR[n.type] || 'var(--accent)'}`,
+                            paddingLeft: read ? 16 : 13,
+                          }}>
+                          <div style={{display:'flex',alignItems:'center',gap:6,width:'100%'}}>
+                            <span style={{color: TYPE_COLOR[n.type] || 'var(--accent)', flexShrink:0}}>
+                              {TYPE_ICON[n.type] || <Info size={13}/>}
+                            </span>
+                            <span style={{fontWeight: read ? 500 : 700, fontSize:13, color:'var(--text-primary)', flex:1,
+                              overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
+                              {n.title}
+                            </span>
+                            {!read && <span style={{width:6,height:6,borderRadius:'50%',background:TYPE_COLOR[n.type]||'var(--accent)',flexShrink:0}}/>}
+                          </div>
+                          <div style={{fontSize:11,color:'var(--text-muted)',paddingLeft:19,
+                            overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',width:'100%'}}>
+                            {n.body}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {sysNotifications.length === 0 && openTickets === 0 && (
+                      <div style={{padding:'20px 16px',fontSize:13,color:'var(--text-muted)',textAlign:'center'}}>
+                        <Bell size={28} style={{opacity:0.2,display:'block',margin:'0 auto 8px'}}/>
+                        Không có thông báo mới
+                      </div>
                     )}
+
                     <div className="dropdown-divider"/>
-                    <Link to="/orders" className="dropdown-item" onClick={()=>setBellOpen(false)} style={{fontSize:12,textAlign:'center',justifyContent:'center'}}>
-                      Xem tất cả đơn hàng
+                    <Link to="/notifications" className="dropdown-item" onClick={()=>setBellOpen(false)}
+                      style={{fontSize:12,textAlign:'center',justifyContent:'center',color:'var(--accent)'}}>
+                      Xem tất cả thông báo →
                     </Link>
                   </div>
                 )}
@@ -285,6 +355,9 @@ const Navbar = ({ cartCount = 0 }) => {
             <div style={{ borderTop: '1px solid var(--border)', paddingTop: 8, marginTop: 8 }}>
               <Link to="/profile" className="mobile-link" onClick={() => setMenuOpen(false)}>👤 Hồ sơ</Link>
               <Link to="/orders" className="mobile-link" onClick={() => setMenuOpen(false)}>📦 Đơn hàng</Link>
+              <Link to="/notifications" className="mobile-link" onClick={() => setMenuOpen(false)}>
+                🔔 Thông báo{unreadCount > 0 && <span style={{marginLeft:6,background:'var(--accent)',color:'#000',borderRadius:'50%',padding:'1px 6px',fontSize:11,fontWeight:700}}>{unreadCount}</span>}
+              </Link>
               <Link to="/wishlist" className="mobile-link" onClick={() => setMenuOpen(false)}>❤️ Yêu thích</Link>
               <Link to="/referral" className="mobile-link" onClick={() => setMenuOpen(false)}>🎁 Giới thiệu bạn bè</Link>
               <Link to="/vouchers" className="mobile-link" onClick={() => setMenuOpen(false)}>🎫 Voucher</Link>

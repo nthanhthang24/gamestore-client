@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Package, ShoppingBag, Users, Settings,
   TrendingUp, DollarSign, Eye, Plus, ChevronRight,
   Zap, Shield, Menu, X, LogOut, Wallet, Tag, Sword,
-  ClipboardList, Gamepad2, Upload, Star, Download} from 'lucide-react';
+  ClipboardList, Gamepad2, Upload, Star, Download, Bell} from 'lucide-react';
 import './AdminDashboard.css';
 
 const AdminLayout = () => {
@@ -50,6 +50,7 @@ const AdminLayout = () => {
     { path: '/admin/audit-log', icon: <ClipboardList size={18} />, label: 'Audit Log' },
     { path: '/admin/bulk-import', icon: <Upload size={18} />, label: 'Bulk Import' },
     { path: '/admin/ratings', icon: <Star size={18} />, label: 'Đánh giá' },
+    { path: '/admin/notifications', icon: <Bell size={18} />, label: 'Thông báo' },
     { path: '/admin/settings', icon: <Settings size={18} />, label: 'Cài đặt' },
   ];
 
