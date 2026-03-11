@@ -28,6 +28,7 @@ const TopupPage = () => {
   const [bankData, setBankData] = useState(null);
   const bankDataRef = useRef(null); // ← ref để closure trong onSnapshot luôn đọc được giá trị mới nhất
   const [copied, setCopied] = useState('');
+  const [activeTab, setActiveTab] = useState('topup'); // 'topup' | 'history'
 
   // Sync ref mỗi khi bankData thay đổi
   useEffect(() => {
@@ -53,6 +54,7 @@ const TopupPage = () => {
         if (found?.status === 'approved') {
           fetchUserProfile(currentUser.uid);
           setBankData(null);
+          setActiveTab('history'); // auto-switch to show the successful transaction
           toast.success(
             `✅ Nạp ${found.amount?.toLocaleString('vi-VN')}đ thành công! Số dư đã cập nhật.`,
             { duration: 6000, style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--success)' } }
@@ -79,6 +81,7 @@ const TopupPage = () => {
         if (snap.exists() && snap.data().status === 'approved') {
           fetchUserProfile(currentUser.uid);
           setBankData(null);
+          setActiveTab('history');
           toast.success(
             `✅ Nạp thành công! Số dư đã cập nhật.`,
             { duration: 6000, style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--success)' } }
@@ -154,138 +157,173 @@ const TopupPage = () => {
           <h1 className="section-title"><Wallet size={26} /> Nạp tiền</h1>
         </div>
 
-        <div className="topup-layout">
-          {/* LEFT: Form */}
-          <div className="topup-form-col">
-            <div className="card topup-step">
-              <div className="step-header">
-                <div className="step-num bank">1</div>
-                <h2 className="step-title">Chọn số tiền muốn nạp</h2>
+        {/* Tab Nav */}
+        <div style={{ display: 'flex', gap: 0, borderBottom: '2px solid var(--border)', marginBottom: 28 }}>
+          {[
+            { id: 'topup', label: '💳 Nạp tiền' },
+            { id: 'history', label: `📋 Lịch sử${history.length > 0 ? ` (${history.length})` : ''}` },
+          ].map(tab => (
+            <button key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              style={{
+                background: 'none', border: 'none', padding: '12px 24px',
+                fontSize: 14, fontWeight: 600, fontFamily: "'Exo 2', sans-serif",
+                cursor: 'pointer', marginBottom: -2,
+                color: activeTab === tab.id ? 'var(--accent)' : 'var(--text-muted)',
+                borderBottom: activeTab === tab.id ? '2px solid var(--accent)' : '2px solid transparent',
+                transition: 'color 0.2s, border-color 0.2s',
+              }}
+            >{tab.label}</button>
+          ))}
+        </div>
+
+        {/* TAB: Nạp tiền */}
+        {activeTab === 'topup' && (
+          <div className="topup-layout">
+            {/* LEFT: Form */}
+            <div className="topup-form-col">
+              <div className="card topup-step">
+                <div className="step-header">
+                  <div className="step-num bank">1</div>
+                  <h2 className="step-title">Chọn số tiền muốn nạp</h2>
+                </div>
+
+                <div className="quick-amounts">
+                  {AMOUNTS.map(amt => (
+                    <button key={amt} type="button"
+                      className={`amount-btn bank ${Number(amount) === amt ? 'active' : ''}`}
+                      onClick={() => setAmount(String(amt))}
+                    >
+                      {amt.toLocaleString('vi-VN')}đ
+                    </button>
+                  ))}
+                </div>
+
+                <div className="form-group" style={{ marginTop: '14px' }}>
+                  <label className="form-label">Hoặc nhập số tiền khác</label>
+                  <input type="number" className="form-input"
+                    placeholder="Tối thiểu 10,000đ"
+                    value={amount} onChange={e => setAmount(e.target.value)} min="10000"
+                  />
+                </div>
+
+                <button
+                  className="btn btn-lg w-full pay-btn bank"
+                  style={{ marginTop: '18px' }}
+                  onClick={handleCreateQR}
+                  disabled={loading || !amount || Number(amount) < 10000}
+                >
+                  {loading
+                    ? <><span className="spinner" style={{ width: 18, height: 18, borderWidth: 2 }} /> Đang tạo QR...</>
+                    : <><QrCode size={20} /> Tạo mã QR chuyển khoản</>
+                  }
+                </button>
+
+                <p style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', marginTop: '10px' }}>
+                  ⚡ Hỗ trợ tất cả ngân hàng VN · Tự động cộng tiền qua SePay webhook
+                </p>
               </div>
 
-              <div className="quick-amounts">
-                {AMOUNTS.map(amt => (
-                  <button key={amt} type="button"
-                    className={`amount-btn bank ${Number(amount) === amt ? 'active' : ''}`}
-                    onClick={() => setAmount(String(amt))}
-                  >
-                    {amt.toLocaleString('vi-VN')}đ
-                  </button>
-                ))}
+              {/* How it works */}
+              <div className="card">
+                <h3 className="how-title">🏦 Quy trình tự động</h3>
+                <div className="process-steps">
+                  {[
+                    'Chọn số tiền → Bấm tạo QR',
+                    'Quét QR bằng app ngân hàng bất kỳ',
+                    'Chuyển khoản — nội dung đã điền sẵn',
+                    'SePay nhận tín hiệu → tự động cộng tiền ✅',
+                  ].map((s, i) => (
+                    <div key={i} className="process-step">
+                      <span className="step-dot bank">{i + 1}</span>
+                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{s}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="info-box">
+                  ⚡ Tự động 100% — không cần admin duyệt · Thời gian xử lý 5-30 giây
+                </div>
               </div>
-
-              <div className="form-group" style={{ marginTop: '14px' }}>
-                <label className="form-label">Hoặc nhập số tiền khác</label>
-                <input type="number" className="form-input"
-                  placeholder="Tối thiểu 10,000đ"
-                  value={amount} onChange={e => setAmount(e.target.value)} min="10000"
-                />
-              </div>
-
-              <button
-                className="btn btn-lg w-full pay-btn bank"
-                style={{ marginTop: '18px' }}
-                onClick={handleCreateQR}
-                disabled={loading || !amount || Number(amount) < 10000}
-              >
-                {loading
-                  ? <><span className="spinner" style={{ width: 18, height: 18, borderWidth: 2 }} /> Đang tạo QR...</>
-                  : <><QrCode size={20} /> Tạo mã QR chuyển khoản</>
-                }
-              </button>
-
-              <p style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', marginTop: '10px' }}>
-                ⚡ Hỗ trợ tất cả ngân hàng VN · Tự động cộng tiền qua SePay webhook
-              </p>
             </div>
 
-            {/* How it works */}
-            <div className="card">
-              <h3 className="how-title">🏦 Quy trình tự động</h3>
-              <div className="process-steps">
-                {[
-                  'Chọn số tiền → Bấm tạo QR',
-                  'Quét QR bằng app ngân hàng bất kỳ',
-                  'Chuyển khoản — nội dung đã điền sẵn',
-                  'SePay nhận tín hiệu → tự động cộng tiền ✅',
-                ].map((s, i) => (
-                  <div key={i} className="process-step">
-                    <span className="step-dot bank">{i + 1}</span>
-                    <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{s}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="info-box">
-                ⚡ Tự động 100% — không cần admin duyệt · Thời gian xử lý 5-30 giây
+            {/* RIGHT: Balance info */}
+            <div className="topup-info-col">
+              <div className="card" style={{ padding: 24 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Số dư hiện tại</div>
+                <div style={{ fontSize: 32, fontWeight: 700, fontFamily: 'Rajdhani', color: 'var(--gold)', marginBottom: 20 }}>
+                  {(userProfile?.balance || 0).toLocaleString('vi-VN')}đ
+                </div>
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, fontSize: 13, color: 'var(--text-secondary)' }}>
+                  <div style={{ marginBottom: 8 }}>🔒 Thanh toán an toàn qua BIDV + SePay</div>
+                  <div style={{ marginBottom: 8 }}>⚡ Cộng tiền tự động trong 5-30 giây</div>
+                  <div>🕐 Giao dịch lịch sử xem trong tab <strong>Lịch sử</strong></div>
+                </div>
+                {history.length > 0 && (
+                  <button className="btn btn-ghost w-full" style={{ marginTop: 16 }}
+                    onClick={() => setActiveTab('history')}>
+                    Xem {history.length} giao dịch →
+                  </button>
+                )}
               </div>
             </div>
           </div>
+        )}
 
-          {/* RIGHT: Lịch sử */}
-          <div className="topup-info-col">
-            <div className="card">
-              <h3 className="how-title">Lịch sử nạp tiền</h3>
-              {history.length === 0 ? (
-                <p style={{ color: 'var(--text-muted)', fontSize: '13px', textAlign: 'center', padding: '24px 0' }}>
-                  Chưa có giao dịch nào
-                </p>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {history.map(item => {
-                    const cfg = statusConfig[item.status] || statusConfig.pending;
+        {/* TAB: Lịch sử */}
+        {activeTab === 'history' && (
+          <div style={{ maxWidth: 640, margin: '0 auto' }}>
+            {history.length === 0 ? (
+              <div className="card" style={{ padding: '60px 40px', textAlign: 'center' }}>
+                <div style={{ fontSize: 48, marginBottom: 16 }}>💳</div>
+                <h3 style={{ marginBottom: 8 }}>Chưa có giao dịch nào</h3>
+                <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 20 }}>Nạp tiền lần đầu để bắt đầu mua tài khoản game!</p>
+                <button className="btn btn-primary" onClick={() => setActiveTab('topup')}>Nạp tiền ngay</button>
+              </div>
+            ) : (
+              <div className="card" style={{ padding: '8px 0', overflow: 'hidden' }}>
+                <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: 700, fontSize: 15 }}>📋 Lịch sử nạp tiền</span>
+                  <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{history.length} giao dịch</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  {history.map((t, idx) => {
+                    const cfg = statusConfig[t.status] || statusConfig.pending;
                     return (
-                      <div key={item.id} className="history-item">
-                        <div>
-                          <div style={{ fontWeight: 700, fontSize: '16px', color: 'var(--accent)', fontFamily: 'Rajdhani' }}>
-                            +{item.amount?.toLocaleString('vi-VN')}đ
-                          </div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                            🏦 BIDV · {item.createdAt?.toDate?.()?.toLocaleString('vi-VN') || '—'}
+                      <div key={t.id} style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: '14px 20px',
+                        borderBottom: idx < history.length - 1 ? '1px solid var(--border)' : 'none',
+                        transition: 'background 0.15s',
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(0,212,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>💰</div>
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--success)', fontFamily: 'Rajdhani' }}>
+                              +{(t.amount || 0).toLocaleString('vi-VN')}đ
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                              🏦 BIDV · {t.createdAt?.toDate?.()?.toLocaleString('vi-VN') || '—'}
+                              {t.transferContent && ` · ${t.transferContent}`}
+                            </div>
                           </div>
                         </div>
-                        <span className={`badge ${cfg.badge}`} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <span className={`badge ${cfg.badge}`} style={{ display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
                           {cfg.icon} {cfg.label}
                         </span>
                       </div>
                     );
                   })}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
-        </div>
+        )}
+
       </div>
 
       {/* QR Modal */}
       {bankData && (
         <BankModal data={bankData} onClose={() => setBankData(null)} onCopy={handleCopy} copied={copied} />
-      )}
-
-      {/* Topup History */}
-      {history.length > 0 && (
-        <div className="topup-history" style={{ maxWidth: 560, margin: '32px auto 0' }}>
-          <h3 style={{ fontFamily: 'Rajdhani', fontSize: 18, fontWeight: 700, marginBottom: 16 }}>
-            📋 Lịch sử nạp tiền
-          </h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {history.slice(0, 10).map(t => (
-              <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: 'var(--bg-card)', borderRadius: 10, border: '1px solid var(--border)' }}>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>
-                    +{(t.amount || 0).toLocaleString('vi-VN')}đ
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                    {t.createdAt?.toDate?.()?.toLocaleString('vi-VN') || '—'}
-                    {t.transferContent && ` · ${t.transferContent}`}
-                  </div>
-                </div>
-                <span className={`badge ${t.status === 'approved' ? 'badge-success' : t.status === 'pending' ? 'badge-orange' : 'badge-danger'}`} style={{ fontSize: 11 }}>
-                  {t.status === 'approved' ? '✅ Thành công' : t.status === 'pending' ? '⏳ Chờ xử lý' : '❌ Từ chối'}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
       )}
     </div>
   );

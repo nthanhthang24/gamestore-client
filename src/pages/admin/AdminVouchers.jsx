@@ -1,7 +1,8 @@
 // src/pages/admin/AdminVouchers.jsx
+import { useConfirm } from '../../components/shared/ConfirmModal';
 import React, { useState, useEffect } from 'react';
 import {
-  collection, addDoc, getDocs, updateDoc, deleteDoc,
+  collection, addDoc, getDocs, onSnapshot, updateDoc, deleteDoc,
   doc, serverTimestamp, query, orderBy, where
 } from 'firebase/firestore';
 import { db } from '../../firebase/config';
@@ -19,6 +20,7 @@ const defaultVoucher = {
   code: '', type: 'percent', value: 10, minOrder: 0,
   maxDiscount: 0, usageLimit: 100, expiresAt: '',
   description: '', targetUserId: '', active: true,
+  perUserLimit: 1,
 };
 
 const VouchersTab = () => {
@@ -29,13 +31,20 @@ const VouchersTab = () => {
   const [form, setForm] = useState(defaultVoucher);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => { fetchVouchers(); }, []);
-  const fetchVouchers = async () => {
+  useEffect(() => {
+    setLoading(true);
+    let unsub;
     try {
-      const snap = await getDocs(query(collection(db, 'vouchers'), orderBy('createdAt', 'desc')));
-      setVouchers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    } catch (e) { console.error(e); } finally { setLoading(false); }
-  };
+      unsub = onSnapshot(
+        query(collection(db, 'vouchers'), orderBy('createdAt', 'desc')),
+        (snap) => { setVouchers(snap.docs.map(d=>({id:d.id,...d.data()}))); setLoading(false); },
+        (err) => { console.error(err); setLoading(false); }
+      );
+    } catch(e) { setLoading(false); }
+    return () => unsub?.();
+  }, []);
+
+  const fetchVouchers = () => {}; // no-op: replaced by onSnapshot
 
   const generateCode = () => {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -52,6 +61,7 @@ const VouchersTab = () => {
         ...form, code: form.code.toUpperCase().trim(),
         value: Number(form.value), minOrder: Number(form.minOrder),
         maxDiscount: Number(form.maxDiscount), usageLimit: Number(form.usageLimit),
+        perUserLimit: Number(form.perUserLimit ?? 1),
         expiresAt: form.expiresAt ? new Date(form.expiresAt) : null,
       };
       if (editingId) {
@@ -61,7 +71,7 @@ const VouchersTab = () => {
         await addDoc(collection(db, 'vouchers'), { ...payload, usedCount: 0, createdAt: serverTimestamp() });
         toast.success('Tạo voucher thành công!', T);
       }
-      setShowForm(false); setEditingId(null); setForm(defaultVoucher); fetchVouchers();
+      setShowForm(false); setEditingId(null); setForm(defaultVoucher);
     } catch (e) { toast.error(e.message, T); } finally { setSaving(false); }
   };
 
@@ -70,6 +80,7 @@ const VouchersTab = () => {
     setForm({
       code: v.code, type: v.type, value: v.value, minOrder: v.minOrder || 0,
       maxDiscount: v.maxDiscount || 0, usageLimit: v.usageLimit || 100,
+        perUserLimit: v.perUserLimit ?? 1,
       expiresAt: v.expiresAt ? (() => { const d = v.expiresAt?.toDate ? v.expiresAt.toDate() : new Date(v.expiresAt); return d.toISOString().slice(0,16); })() : '',
       description: v.description || '', targetUserId: v.targetUserId || '', active: v.active,
     });
@@ -81,7 +92,7 @@ const VouchersTab = () => {
     setVouchers(v => v.map(x => x.id === id ? { ...x, active: !active } : x));
   };
   const remove = async (id) => {
-    if (!window.confirm('Xoá voucher này?')) return;
+    if (!(await confirm('Xoá voucher này?'))) return;
     await deleteDoc(doc(db, 'vouchers', id));
     setVouchers(v => v.filter(x => x.id !== id));
     toast.success('Đã xoá', T);
@@ -127,8 +138,13 @@ const VouchersTab = () => {
               </div>
             )}
             <div className="form-group">
-              <label className="form-label">Số lần dùng tối đa</label>
+              <label className="form-label">Số lần dùng tối đa (tổng)</label>
               <input className="form-input" type="number" value={form.usageLimit} onChange={e => setForm(f => ({ ...f, usageLimit: e.target.value }))} min="1" />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Số lần / mỗi user</label>
+              <input className="form-input" type="number" value={form.perUserLimit ?? 1}
+                onChange={e => setForm(f => ({ ...f, perUserLimit: Number(e.target.value) }))} min="1" max="100"/>
             </div>
             <div className="form-group">
               <label className="form-label">Hết hạn (để trống = vĩnh viễn)</label>
@@ -189,11 +205,15 @@ const FlashSaleTab = () => {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ label: '', discount: 10, startAt: '', endAt: '', active: true, color: '#ff4757' });
 
-  useEffect(() => { fetchVouchers(); }, []);
-  const fetchVouchers = async () => {
-    const snap = await getDocs(collection(db, 'flashSales'));
-    setFlashSales(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-  };
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'flashSales'),
+      (snap) => setFlashSales(snap.docs.map(d=>({id:d.id,...d.data()}))),
+      () => {}
+    );
+    return () => unsub();
+  }, []);
+
+  const fetchVouchers = () => {}; // no-op
 
   const handleSave = async () => {
     if (!form.label) { toast.error('Nhập tên flash sale', T); return; }
@@ -210,14 +230,14 @@ const FlashSaleTab = () => {
       createdAt: serverTimestamp(),
     });
     toast.success('Tạo flash sale!', T);
-    setShowForm(false); setForm({ label: '', discount: 10, startAt: '', endAt: '', active: true, color: '#ff4757' }); fetch();
+    setShowForm(false); setForm({ label: '', discount: 10, startAt: '', endAt: '', active: true, color: '#ff4757' }); // onSnapshot auto-refreshes
   };
   const toggle = async (id, active) => {
     await updateDoc(doc(db, 'flashSales', id), { active: !active });
     setFlashSales(v => v.map(x => x.id === id ? { ...x, active: !active } : x));
   };
   const remove = async (id) => {
-    if (!window.confirm('Xoá flash sale?')) return;
+    if (!(await confirm('Xoá flash sale?'))) return;
     await deleteDoc(doc(db, 'flashSales', id)); setFlashSales(v => v.filter(x => x.id !== id));
   };
 
@@ -293,14 +313,20 @@ const BulkDiscountTab = () => {
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ minQty: 2, maxQty: '', discountPct: 5, label: '', active: true });
 
-  useEffect(() => { fetchRules(); }, []);
-
-  const fetchRules = async () => {
+  useEffect(() => {
+    setLoading(true);
+    let unsub;
     try {
-      const snap = await getDocs(query(collection(db, 'bulkDiscountRules'), orderBy('minQty', 'asc')));
-      setRules(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    } catch (e) { console.error(e); } finally { setLoading(false); }
-  };
+      unsub = onSnapshot(
+        query(collection(db, 'bulkDiscountRules'), orderBy('minQty', 'asc')),
+        (snap) => { setRules(snap.docs.map(d=>({id:d.id,...d.data()}))); setLoading(false); },
+        () => setLoading(false)
+      );
+    } catch(e) { setLoading(false); }
+    return () => unsub?.();
+  }, []);
+
+  const fetchRules = () => {}; // no-op: replaced by onSnapshot
 
   const openNew = () => {
     setEditingId(null);
@@ -347,7 +373,7 @@ const BulkDiscountTab = () => {
   };
 
   const remove = async (id) => {
-    if (!window.confirm('Xoá rule này?')) return;
+    if (!(await confirm('Xoá rule này?'))) return;
     await deleteDoc(doc(db, 'bulkDiscountRules', id));
     setRules(r => r.filter(x => x.id !== id));
     toast.success('Đã xoá', T);
@@ -453,6 +479,7 @@ const BulkDiscountTab = () => {
 
 // ─── MAIN COMPONENT ───────────────────────────────────────────────
 const AdminVouchers = () => {
+  const { confirm, ConfirmModal } = useConfirm();
   const [tab, setTab] = useState('bulk');
   const tabs = [
     { id: 'bulk', icon: <Layers size={15} />, label: 'Rule Số Lượng' },

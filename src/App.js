@@ -15,7 +15,7 @@ function useServerWakeup() {
     return () => clearInterval(interval);
   }, []);
 }
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Navbar from './components/shared/Navbar';
@@ -34,7 +34,52 @@ import AdminServices from './pages/admin/AdminServices';
 import AdminGameTypes from './pages/admin/AdminGameTypes';
 import ServicesPage from './pages/user/ServicesPage';
 import MyVouchersPage from './pages/user/MyVouchersPage';
+import AdminFlashSales from './pages/admin/AdminFlashSales';
+import AdminBulkImport from './pages/admin/AdminBulkImport';
+import AdminRatings from './pages/admin/AdminRatings';
+import WishlistPage from './pages/user/WishlistPage';
+import ReferralPage from './pages/user/ReferralPage';
+import AdminTickets from './pages/admin/AdminTickets';
+import AdminAuditLog from './pages/admin/AdminAuditLog';
+import OrderDetailPage from './pages/user/OrderDetailPage';
+import { useWishlist } from './hooks/useWishlist';
+import { useSEO } from './hooks/useSEO';
+import { logAudit } from './utils/auditLog';
 import './index.css';
+
+// ── 404 Page ─────────────────────────────────────────────────
+const NotFoundPage = () => {
+  return (
+    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+      height:'60vh', textAlign:'center', gap:16 }}>
+      <div style={{ fontSize:80 }}>🎮</div>
+      <h1 style={{ fontFamily:'Rajdhani', fontSize:40, fontWeight:700, color:'var(--accent)' }}>404</h1>
+      <p style={{ color:'var(--text-muted)', fontSize:16 }}>Trang bạn tìm không tồn tại</p>
+      <a href="/" className="btn btn-primary">Về trang chủ</a>
+    </div>
+  );
+};
+
+// ── Error Boundary ────────────────────────────────────────────
+class ErrorBoundary extends React.Component {
+  state = { hasError: false, error: null };
+  static getDerivedStateFromError(error) { return { hasError: true, error }; }
+  componentDidCatch(error, info) { console.error('ErrorBoundary caught:', error, info); }
+  render() {
+    if (this.state.hasError) return (
+      <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+        height:'60vh', textAlign:'center', gap:16, padding:20 }}>
+        <div style={{ fontSize:60 }}>⚠️</div>
+        <h2 style={{ fontFamily:'Rajdhani', color:'var(--danger)' }}>Có lỗi xảy ra</h2>
+        <p style={{ color:'var(--text-muted)', fontSize:13, maxWidth:400 }}>
+          {this.state.error?.message || 'Lỗi không xác định'}
+        </p>
+        <button className="btn btn-primary" onClick={() => window.location.href='/'}>Tải lại trang</button>
+      </div>
+    );
+    return this.props.children;
+  }
+}
 
 const ProtectedRoute = ({ children, adminOnly = false }) => {
   const { currentUser, userProfile, loading } = useAuth();
@@ -56,7 +101,6 @@ const ProtectedRoute = ({ children, adminOnly = false }) => {
 };
 
 const Footer = () => {
-  const { Link } = require('react-router-dom');
   return (
   <footer style={{ background: 'var(--bg-secondary)', borderTop: '1px solid var(--border)', padding: '40px 0', marginTop: '60px' }}>
     <div className="container" style={{ textAlign: 'center' }}>
@@ -100,15 +144,23 @@ const AdminOrdersPage = () => {
   const [search, setSearch] = React.useState('');
 
   React.useEffect(() => {
-    import('firebase/firestore').then(({ collection, query, orderBy, getDocs }) => {
+    setLoading(true);
+    let unsub;
+    import('firebase/firestore').then(({ collection, query, orderBy, onSnapshot, getDocs }) => {
       import('./firebase/config').then(({ db }) => {
-        getDocs(query(collection(db, 'orders'), orderBy('createdAt', 'desc')))
-          .then(snap => setOrders(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
-          .catch(() => getDocs(collection(db, 'orders'))
-            .then(snap => setOrders(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.toDate?.() || 0) - (a.createdAt?.toDate?.() || 0))))
-          ).finally(() => setLoading(false));
+        try {
+          unsub = onSnapshot(
+            query(collection(db, 'orders'), orderBy('createdAt', 'desc')),
+            (snap) => { setOrders(snap.docs.map(d => ({ id: d.id, ...d.data() }))); setLoading(false); },
+            () => getDocs(collection(db,'orders'))
+              .then(snap => setOrders(snap.docs.map(d=>({id:d.id,...d.data()}))
+                .sort((a,b)=>(b.createdAt?.toDate?.()??0)-(a.createdAt?.toDate?.()??0))))
+              .finally(() => setLoading(false))
+          );
+        } catch { setLoading(false); }
       });
     });
+    return () => unsub?.();
   }, []);
 
   const filtered = orders.filter(o => !search || o.userEmail?.includes(search) || o.id.includes(search));
@@ -121,9 +173,9 @@ const AdminOrdersPage = () => {
           <h1 className="admin-page-title">Quản lý Đơn hàng</h1>
           <p className="admin-page-sub">{orders.length} đơn · Doanh thu: <strong style={{ color: 'var(--gold)' }}>{totalRevenue.toLocaleString('vi-VN')}đ</strong></p>
         </div>
-        <button className="btn btn-ghost btn-sm" onClick={() => exportOrdersCSV(filtered)} style={{ display:'flex', alignItems:'center', gap:6 }}>
-          📊 Xuất CSV
-        </button>
+        <div style={{display:'flex',gap:8}}>
+          <button className="btn btn-ghost btn-sm" onClick={() => exportOrdersCSV(filtered)} style={{ display:'flex', alignItems:'center', gap:6 }}>📊 Xuất CSV</button>
+        </div>
       </div>
       <div className="card" style={{ padding: 16, marginBottom: 20 }}>
         <input className="form-input" placeholder="Tìm theo email hoặc mã đơn..." value={search}
@@ -180,22 +232,25 @@ const AdminOrdersPage = () => {
                             {item.loginNote && <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 8 }}>📝 {item.loginNote}</div>}
                           </div>
                         )}
-                        {/* Attachment download — LUÔN hiện nếu có file, độc lập với loginUsername */}
-                        {item.attachmentUrl && (
+                        {/* Attachment download */}
+                        {(item.attachmentContent || item.attachmentUrl) && (
                           <div style={{ background: 'rgba(46,213,115,0.07)', border: '1px solid rgba(46,213,115,0.25)', borderRadius: 6, padding: '10px 14px' }}>
                             <div style={{ fontSize: 11, color: '#2ed573', fontWeight: 700, textTransform: 'uppercase', marginBottom: 8 }}>📎 File thông tin tài khoản</div>
-                            <a
-                              href={item.attachmentUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#fff', textDecoration: 'none', padding: '8px 16px', borderRadius: 6, background: 'rgba(46,213,115,0.2)', border: '1px solid rgba(46,213,115,0.4)', fontWeight: 600 }}
-                            >
-                              ⬇️ Tải file: {item.attachmentName || 'thongtin.txt'}
-                            </a>
+                            {item.attachmentContent ? (
+                              <button onClick={() => { const b=new Blob([item.attachmentContent],{type:'text/plain;charset=utf-8'}); const u=URL.createObjectURL(b); const a=document.createElement('a'); a.href=u; a.download=item.attachmentName||'thongtin.txt'; a.click(); URL.revokeObjectURL(u); }}
+                                style={{ display:'inline-flex', alignItems:'center', gap:8, fontSize:13, color:'#fff', cursor:'pointer', padding:'8px 16px', borderRadius:6, background:'rgba(46,213,115,0.2)', border:'1px solid rgba(46,213,115,0.4)', fontWeight:600 }}>
+                                ⬇️ Tải file: {item.attachmentName || 'thongtin.txt'}
+                              </button>
+                            ) : (
+                              <a href={item.attachmentUrl} target="_blank" rel="noreferrer"
+                                style={{ display:'inline-flex', alignItems:'center', gap:8, fontSize:13, color:'#fff', textDecoration:'none', padding:'8px 16px', borderRadius:6, background:'rgba(46,213,115,0.2)', border:'1px solid rgba(46,213,115,0.4)', fontWeight:600 }}>
+                                ⬇️ Tải file: {item.attachmentName || 'thongtin.txt'}
+                              </a>
+                            )}
                           </div>
                         )}
                         {/* Fallback khi không có cả hai */}
-                        {!item.loginUsername && !item.attachmentUrl && (
+                        {!item.loginUsername && !item.attachmentContent && !item.attachmentUrl && (
                           <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic', padding: '8px 0' }}>
                             Thông tin đăng nhập sẽ được admin liên hệ qua email.
                           </div>
@@ -222,25 +277,28 @@ const AdminUsersPage = () => {
   const [adjusting, setAdjusting] = React.useState(false);
 
   React.useEffect(() => {
-    import('firebase/firestore').then(({ collection, getDocs, orderBy, query }) => {
+    setLoading(true);
+    let unsub;
+    import('firebase/firestore').then(({ collection, query, orderBy, onSnapshot, getDocs }) => {
       import('./firebase/config').then(({ db }) => {
-        getDocs(query(collection(db, 'users'), orderBy('createdAt', 'desc')))
-          .then(snap => setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
-          .catch(err => {
-            // fallback no orderBy
-            getDocs(collection(db, 'users'))
-              .then(snap => setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
-              .catch(console.error);
-          })
-          .finally(() => setLoading(false));
+        try {
+          unsub = onSnapshot(
+            query(collection(db, 'users'), orderBy('createdAt', 'desc')),
+            (snap) => { setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() }))); setLoading(false); },
+            () => getDocs(collection(db,'users'))
+              .then(snap => setUsers(snap.docs.map(d=>({id:d.id,...d.data()}))))
+              .finally(() => setLoading(false))
+          );
+        } catch { setLoading(false); }
       });
     });
+    return () => unsub?.();
   }, []);
 
   const handleAdjustBalance = async () => {
     if (!selectedUser || !adjustAmount) return;
     const amt = parseInt(adjustAmount);
-    if (isNaN(amt)) { alert('Số tiền không hợp lệ'); return; }
+    if (isNaN(amt)) { import('react-hot-toast').then(({default:t})=>t.error('Số tiền không hợp lệ')); return; }
     setAdjusting(true);
     try {
       await import('firebase/firestore').then(({ doc, runTransaction }) =>
@@ -257,12 +315,34 @@ const AdminUsersPage = () => {
       setUsers(us => us.map(u => u.id === selectedUser.id ? { ...u, balance: (u.balance || 0) + amt } : u));
       setSelectedUser(u => ({ ...u, balance: (u.balance || 0) + amt }));
       setAdjustAmount(''); setAdjustNote('');
+      import('./utils/auditLog').then(({ logAudit }) =>
+        logAudit('balance_adjust',{ targetUserId:selectedUser.id, targetEmail:selectedUser.email, amount:amt, note:adjustNote })
+      );
       import('react-hot-toast').then(({ default: toast }) =>
         toast.success(`${amt >= 0 ? '+' : ''}${amt.toLocaleString('vi-VN')}đ cho ${selectedUser.email}`)
       );
     } catch (e) {
-      alert('Lỗi: ' + e.message);
+      import('react-hot-toast').then(({default:t})=>t.error('Lỗi: '+e.message));
     } finally { setAdjusting(false); }
+  };
+
+  const handleBanUser = async (u, ban) => {
+    // Inline confirm via toast-style notification (admin-only, acceptable)
+    try {
+      await import('firebase/firestore').then(({ doc, updateDoc, serverTimestamp }) =>
+        import('./firebase/config').then(({ db }) =>
+          updateDoc(doc(db,'users',u.id), { banned: ban, bannedAt: ban ? serverTimestamp() : null })
+        )
+      );
+      await import('./utils/auditLog').then(({ logAudit }) =>
+        logAudit(ban?'user_ban':'user_unban',{ targetUserId:u.id, targetEmail:u.email })
+      );
+      setUsers(us => us.map(x => x.id===u.id ? {...x, banned:ban} : x));
+      if (selectedUser?.id===u.id) setSelectedUser(p=>({...p,banned:ban}));
+      import('react-hot-toast').then(({ default: toast }) =>
+        toast.success(`${ban?'Đã khoá':'Đã mở khoá'} ${u.email}`)
+      );
+    } catch(e) { import('react-hot-toast').then(({default:t})=>t.error('Lỗi: '+e.message)); }
   };
 
   const filtered = users.filter(u =>
@@ -277,7 +357,7 @@ const AdminUsersPage = () => {
       <div className="admin-page-header">
         <div>
           <h1 className="admin-page-title">Quản lý Người dùng</h1>
-          <p className="admin-page-sub">{users.length} tài khoản đã đăng ký</p>
+          <p className="admin-page-sub">{users.length} tài khoản đã đăng ký · 🔴 Realtime</p>
         </div>
       </div>
 
@@ -337,9 +417,18 @@ const AdminUsersPage = () => {
                     </td>
                     <td style={{ fontSize: 13 }}>{u.email}</td>
                     <td style={{ fontWeight: 600, color: 'var(--gold)' }}>{(u.balance || 0).toLocaleString('vi-VN')}đ</td>
-                    <td><span className={`badge ${u.role === 'admin' ? 'badge-danger' : 'badge-success'}`}>{u.role || 'user'}</span></td>
+                    <td>
+                      <span className={`badge ${u.role === 'admin' ? 'badge-danger' : 'badge-success'}`}>{u.role || 'user'}</span>
+                      {u.banned && <span className="badge" style={{background:'var(--danger)',marginLeft:4,fontSize:9}}>BAN</span>}
+                    </td>
                     <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{u.createdAt?.toDate?.()?.toLocaleDateString('vi-VN') || '—'}</td>
-                    <td><button className="btn btn-ghost btn-sm" onClick={e => { e.stopPropagation(); setSelectedUser(u); }}>Quản lý</button></td>
+                    <td style={{display:'flex',gap:6}}>
+                      <button className="btn btn-ghost btn-sm" onClick={e => { e.stopPropagation(); setSelectedUser(u); }}>Quản lý</button>
+                      <button className="btn btn-ghost btn-sm" onClick={e=>{e.stopPropagation();handleBanUser(u,!u.banned);}}
+                        style={{color:u.banned?'var(--success)':'var(--danger)',fontSize:11}}>
+                        {u.banned?'Mở khoá':'Khoá'}
+                      </button>
+                    </td>
                   </tr>
                 ))}
                 {filtered.length === 0 && <tr><td colSpan="6" style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>Không có dữ liệu</td></tr>}
@@ -374,7 +463,7 @@ const AdminSettingsPage = () => {
         )
       );
       setSaved(true); setTimeout(() => setSaved(false), 2000);
-    } catch (e) { alert('Lỗi lưu settings: ' + e.message); }
+    } catch (e) { import('react-hot-toast').then(({default:t})=>t.error('Lỗi lưu settings: '+e.message)); }
   };
 
   const Row = ({ label, desc, children }) => (
@@ -425,12 +514,47 @@ const AdminSettingsPage = () => {
       </div>
 
       <div className="card" style={{ padding: 24 }}>
+        <h3 style={{ marginBottom: 16, color: 'var(--accent)' }}>📧 Email Notification</h3>
+        <div style={{fontSize:13,color:'var(--text-secondary)',lineHeight:2,marginBottom:16}}>
+          <div>Email tự động gửi khi: mua hàng thành công, nạp tiền duyệt, admin phản hồi ticket.</div>
+          <div>Cấu hình tại Firebase Console → Functions → Environment variables:</div>
+          <code style={{display:'block',padding:'10px 14px',background:'var(--bg-primary)',borderRadius:8,fontSize:12,marginTop:8,fontFamily:'monospace',lineHeight:1.8,color:'var(--text-primary)'}}>
+            {'SMTP_HOST=smtp.gmail.com'}<br/>
+            {'SMTP_PORT=587'}<br/>
+            {'SMTP_USER=your@gmail.com'}<br/>
+            {'SMTP_PASS=app-password'}<br/>
+            {'EMAIL_FROM=GameStore VN <noreply@yourdomain.vn>'}
+          </code>
+          <div style={{marginTop:8}}>Hoặc dùng <strong>SENDGRID_API_KEY</strong> thay thế SMTP.</div>
+        </div>
+        <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
+          <input className="form-input" id="test-email-to" placeholder="Email nhận test" style={{flex:1,minWidth:200}} defaultValue={settings.supportEmail}/>
+          <select className="form-input" id="test-email-type" style={{width:130}}>
+            <option value="topup">Nạp tiền</option>
+            <option value="order">Đơn hàng</option>
+          </select>
+          <button className="btn btn-ghost btn-sm" onClick={async()=>{
+            const to = document.getElementById('test-email-to')?.value;
+            const type = document.getElementById('test-email-type')?.value||'topup';
+            if (!to) { import('react-hot-toast').then(({default:t})=>t.error('Nhập email')); return; }
+            try {
+              const {getFunctions,httpsCallable} = await import('firebase/functions');
+              const {app} = await import('./firebase/config');
+              const fn = httpsCallable(getFunctions(app),'sendTestEmail');
+              await fn({to,type});
+              import('react-hot-toast').then(({default:t})=>t.success('Email test đã gửi tới '+to));
+            } catch(e) { import('react-hot-toast').then(({default:t})=>t.error('Lỗi: '+e.message)); }
+          }}>📤 Gửi test</button>
+        </div>
+      </div>
+
+      <div className="card" style={{ padding: 24 }}>
         <h3 style={{ marginBottom: 16, color: 'var(--accent)' }}>📊 Thông tin hệ thống</h3>
         <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 2 }}>
           <div>🔧 Stack: React 18 + Firebase Firestore + Cloudinary</div>
           <div>🚀 Deploy: Vercel (Frontend) + Render (Backend)</div>
           <div>💳 Payment: BIDV via SePay webhook</div>
-          <div>⚡ Version: 2.0.0-stable</div>
+          <div>⚡ Version: 2.2.0-sprint10</div>
         </div>
       </div>
     </div>
@@ -448,27 +572,27 @@ const UserOrdersPage = () => {
     if (!currentUser) return;
     setLoading(true);
     setFetchError(null);
-    import('firebase/firestore').then(({ collection, query, where, getDocs }) => {
+    let unsub;
+    import('firebase/firestore').then(({ collection, query, where, onSnapshot }) => {
       import('./firebase/config').then(({ db }) => {
-        // Bỏ orderBy để tránh cần composite index — sort ở client-side
-        getDocs(query(collection(db, 'orders'),
-          where('userId', '==', currentUser.uid)
-        )).then(snap => {
-          const data = snap.docs
-            .map(d => ({ id: d.id, ...d.data() }))
-            .sort((a, b) => {
-              // Sort by createdAt desc, handle Firestore Timestamp
-              const ta = a.createdAt?.toDate?.() || new Date(a.createdAt || 0);
-              const tb = b.createdAt?.toDate?.() || new Date(b.createdAt || 0);
-              return tb - ta;
-            });
-          setOrders(data);
-        }).catch(err => {
-          console.error('Orders fetch error:', err);
-          setFetchError(err.message);
-        }).finally(() => setLoading(false));
+        unsub = onSnapshot(
+          query(collection(db, 'orders'), where('userId', '==', currentUser.uid)),
+          (snap) => {
+            const data = snap.docs
+              .map(d => ({ id: d.id, ...d.data() }))
+              .sort((a, b) => {
+                const ta = a.createdAt?.toDate?.() || new Date(a.createdAt || 0);
+                const tb = b.createdAt?.toDate?.() || new Date(b.createdAt || 0);
+                return tb - ta;
+              });
+            setOrders(data);
+            setLoading(false);
+          },
+          (err) => { console.error(err); setFetchError(err.message); setLoading(false); }
+        );
       });
     });
+    return () => unsub?.();
   }, [currentUser]);
 
   return (
@@ -476,11 +600,31 @@ const UserOrdersPage = () => {
       <div className="container">
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'24px', flexWrap:'wrap', gap:12 }}>
           <h1 className="section-title" style={{ margin:0 }}>📦 Đơn hàng của tôi</h1>
-          {orders.length > 0 && (
-            <input className="form-input" placeholder="Tìm theo tên game, mã đơn..."
-              value={search} onChange={e => setSearch(e.target.value)}
-              style={{ width: 260 }} />
-          )}
+          <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
+            {orders.length > 0 && (
+              <input className="form-input" placeholder="Tìm theo tên game, mã đơn..."
+                value={search} onChange={e => setSearch(e.target.value)}
+                style={{ width: 220 }} />
+            )}
+            {orders.length > 0 && (
+              <button className="btn btn-ghost btn-sm" onClick={() => {
+                const rows = [['Mã đơn','Ngày','Sản phẩm','Tổng']];
+                orders.forEach(o => rows.push([
+                  o.id.slice(-8).toUpperCase(),
+                  o.createdAt?.toDate?.()?.toLocaleDateString('vi-VN')||'',
+                  (o.items||[]).map(i=>i.title).join('; '),
+                  o.total?.toLocaleString('vi-VN')+'đ'
+                ]));
+                const csv = rows.map(r=>r.map(c=>(`"${String(c).replace(/"/g,'""')}"`)).join(',')).join('\n');
+                const blob = new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href=url; a.download='don-hang-cua-toi.csv'; a.click();
+                URL.revokeObjectURL(url);
+              }} style={{display:'flex',alignItems:'center',gap:6}}>
+                ⬇ Export CSV
+              </button>
+            )}
+          </div>
         </div>
         {loading ? (
           <div style={{ textAlign: 'center', padding: '60px' }}><div className="spinner" /></div>
@@ -489,7 +633,7 @@ const UserOrdersPage = () => {
             <div style={{ fontSize: '40px', marginBottom: '12px' }}>⚠️</div>
             <h3>Không thể tải đơn hàng</h3>
             <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '8px' }}>{fetchError}</p>
-            <button className="btn btn-primary" style={{ marginTop: '16px' }} onClick={() => window.location.reload()}>Thử lại</button>
+            <button className="btn btn-primary" style={{ marginTop: '16px' }} onClick={() => { setLoading(true); setFetchError(null); }}>Thử lại</button>
           </div>
         ) : orders.length === 0 ? (
           <div className="card" style={{ textAlign: 'center', padding: '60px' }}>
@@ -515,7 +659,10 @@ const UserOrdersPage = () => {
                       {order.createdAt?.toDate?.()?.toLocaleString('vi-VN') || '—'}
                     </span>
                   </div>
-                  <span className="badge badge-success">✅ Hoàn thành</span>
+                  <div style={{display:'flex',alignItems:'center',gap:8}}>
+                    <span className="badge badge-success">✅ Hoàn thành</span>
+                    <Link to={`/orders/${order.id}`} style={{fontSize:12,color:'var(--accent)',textDecoration:'none'}}>Chi tiết →</Link>
+                  </div>
                 </div>
                 {(order.items || []).map((item, i) => (
                   <div key={i} style={{ borderTop: '1px solid var(--border)', padding: '10px 0' }}>
@@ -545,20 +692,27 @@ const UserOrdersPage = () => {
                         </div>
                       </div>
                     )}
-                    {/* ✅ Attachment download — LUÔN hiện nếu có file, không phụ thuộc loginUsername */}
-                    {item.attachmentUrl && (
+                    {/* ✅ Attachment download */}
+                    {(item.attachmentContent || item.attachmentUrl) && (
                       <div style={{ background: 'rgba(46,213,115,0.07)', border: '1px solid rgba(46,213,115,0.25)', borderRadius: 8, padding: '10px 14px', marginTop: 6 }}>
                         <div style={{ fontSize: '11px', color: '#2ed573', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>
                           📎 File thông tin tài khoản
                         </div>
-                        <a href={item.attachmentUrl} target="_blank" rel="noreferrer"
-                          style={{ display:'inline-flex', alignItems:'center', gap:6, fontSize:13, color:'#fff', textDecoration:'none', padding:'7px 16px', border:'1px solid rgba(46,213,115,0.4)', borderRadius:6, background:'rgba(46,213,115,0.2)', fontWeight:600 }}>
-                          ⬇️ Tải file: {item.attachmentName || 'thongtin.txt'}
-                        </a>
+                        {item.attachmentContent ? (
+                          <button onClick={() => { const b=new Blob([item.attachmentContent],{type:'text/plain;charset=utf-8'}); const u=URL.createObjectURL(b); const a=document.createElement('a'); a.href=u; a.download=item.attachmentName||'thongtin.txt'; a.click(); URL.revokeObjectURL(u); }}
+                            style={{ display:'inline-flex', alignItems:'center', gap:6, fontSize:13, color:'#fff', cursor:'pointer', padding:'7px 16px', border:'1px solid rgba(46,213,115,0.4)', borderRadius:6, background:'rgba(46,213,115,0.2)', fontWeight:600 }}>
+                            ⬇️ Tải file: {item.attachmentName || 'thongtin.txt'}
+                          </button>
+                        ) : (
+                          <a href={item.attachmentUrl} target="_blank" rel="noreferrer"
+                            style={{ display:'inline-flex', alignItems:'center', gap:6, fontSize:13, color:'#fff', textDecoration:'none', padding:'7px 16px', border:'1px solid rgba(46,213,115,0.4)', borderRadius:6, background:'rgba(46,213,115,0.2)', fontWeight:600 }}>
+                            ⬇️ Tải file: {item.attachmentName || 'thongtin.txt'}
+                          </a>
+                        )}
                       </div>
                     )}
                     {/* Fallback */}
-                    {!item.loginUsername && !item.attachmentUrl && (
+                    {!item.loginUsername && !item.attachmentContent && !item.attachmentUrl && (
                       <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic', marginTop: 6 }}>
                         Thông tin đăng nhập sẽ được admin liên hệ qua email.
                       </div>
@@ -582,31 +736,232 @@ const UserOrdersPage = () => {
   );
 };
 
-const SupportPage = () => (
-  <div className="page-wrapper" style={{ padding: '30px 0 60px' }}>
-    <div className="container">
-      <h1 className="section-title" style={{ marginBottom: '28px' }}>Hỗ trợ khách hàng</h1>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px' }}>
-        {[
-          { icon: '💬', title: 'Live Chat', desc: 'Chat trực tiếp với nhân viên hỗ trợ' },
-          { icon: '📧', title: 'Email', desc: <a href='mailto:support@gamestore.vn' style={{color:'var(--accent)'}}>support@gamestore.vn</a> },
-          { icon: '📱', title: 'Zalo / Facebook', desc: 'Nhắn tin qua mạng xã hội' },
-        ].map((item, i) => (
-          <div key={i} className="card" style={{ textAlign: 'center', padding: '32px' }}>
-            <div style={{ fontSize: '40px', marginBottom: '16px' }}>{item.icon}</div>
-            <h3 style={{ fontFamily: 'Rajdhani', fontSize: '20px', fontWeight: 700, marginBottom: '8px' }}>{item.title}</h3>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>{item.desc}</p>
+const SupportPage = () => {
+  const { currentUser, userProfile } = useAuth();
+  const navigate = useNavigate();
+  const [form, setForm] = React.useState({ type: 'warranty', orderId: '', description: '' });
+  const [submitting, setSubmitting] = React.useState(false);
+  const [myTickets, setMyTickets] = React.useState([]);
+  const [ticketsLoading, setTicketsLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    if (!currentUser) return;
+    setTicketsLoading(true);
+    let unsub;
+    import('firebase/firestore').then(({ collection, query, where, orderBy, onSnapshot }) =>
+      import('./firebase/config').then(({ db }) => {
+        unsub = onSnapshot(
+          query(collection(db,'tickets'), where('userId','==',currentUser.uid), orderBy('createdAt','desc')),
+          (snap) => { setMyTickets(snap.docs.map(d=>({id:d.id,...d.data()}))); setTicketsLoading(false); },
+          () => setTicketsLoading(false)
+        );
+      })
+    );
+    return () => unsub?.();
+  }, [currentUser]);
+
+  const handleSubmit = async () => {
+    if (!currentUser) { navigate('/login'); return; }
+    if (!form.description.trim()) {
+      import('react-hot-toast').then(({default:t}) => t.error('Mô tả vấn đề không được để trống'));
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await import('firebase/firestore').then(({ collection, addDoc, serverTimestamp }) =>
+        import('./firebase/config').then(({ db }) =>
+          addDoc(collection(db, 'tickets'), {
+            userId:      currentUser.uid,
+            userEmail:   currentUser.email,
+            userName:    userProfile?.displayName || currentUser.email,
+            type:        form.type,
+            orderId:     form.orderId.trim() || null,
+            description: form.description.trim(),
+            status:      'open',
+            adminReply:  null,
+            createdAt:   serverTimestamp(),
+          })
+        )
+      );
+      import('react-hot-toast').then(({default:t}) => t.success('✅ Đã gửi ticket! Chúng tôi sẽ phản hồi sớm.'));
+      setForm({ type: 'warranty', orderId: '', description: '' });
+    } catch(e) {
+      import('react-hot-toast').then(({default:t}) => t.error('Lỗi: ' + e.message));
+    } finally { setSubmitting(false); }
+  };
+
+  const TICKET_TYPES = [
+    { value: 'warranty', label: '🛡️ Bảo hành tài khoản' },
+    { value: 'refund',   label: '💰 Hoàn tiền' },
+    { value: 'account',  label: '🔑 Vấn đề tài khoản' },
+    { value: 'payment',  label: '💳 Vấn đề thanh toán' },
+    { value: 'other',    label: '💬 Khác' },
+  ];
+
+  const STATUS_COLORS = { open:'var(--gold)', in_progress:'var(--accent)', resolved:'var(--success)', rejected:'var(--danger)' };
+  const STATUS_LABELS = { open:'Đang chờ', in_progress:'Đang xử lý', resolved:'Đã giải quyết', rejected:'Từ chối' };
+
+  return (
+    <div className="page-wrapper" style={{ padding: '30px 0 80px' }}>
+      <div className="container">
+        <h1 className="section-title" style={{ marginBottom: '8px' }}>Hỗ trợ khách hàng</h1>
+        <p style={{ color:'var(--text-muted)', marginBottom: 28, fontSize:14 }}>
+          Gửi ticket và chúng tôi sẽ phản hồi trong vòng 24 giờ.
+        </p>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 32 }}>
+          {[
+            { icon: '📧', title: 'Email', desc: 'support@gamestore.vn' },
+            { icon: '📱', title: 'Zalo', desc: 'Nhắn qua Zalo OA' },
+            { icon: '🕐', title: 'Phản hồi', desc: 'Trong vòng 24 giờ' },
+          ].map((item, i) => (
+            <div key={i} className="card" style={{ textAlign: 'center', padding: '20px 16px' }}>
+              <div style={{ fontSize: 28, marginBottom: 8 }}>{item.icon}</div>
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>{item.title}</div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>{item.desc}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Ticket form */}
+        <div className="card" style={{ padding: 28, marginBottom: 32 }}>
+          <h3 style={{ fontFamily: 'Rajdhani', fontSize: 18, fontWeight: 700, marginBottom: 20 }}>
+            🎫 Tạo ticket hỗ trợ
+          </h3>
+          {!currentUser ? (
+            <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>
+              <p>Đăng nhập để gửi ticket hỗ trợ</p>
+              <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => navigate('/login')}>Đăng nhập</button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div>
+                <label className="form-label">Loại vấn đề</label>
+                <select className="form-input" value={form.type}
+                  onChange={e => setForm(p => ({ ...p, type: e.target.value }))}>
+                  {TICKET_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="form-label">Mã đơn hàng <span style={{ color:'var(--text-muted)', fontWeight:400 }}>(nếu có)</span></label>
+                <input className="form-input" placeholder="Ví dụ: ABC12345"
+                  value={form.orderId} onChange={e => setForm(p => ({ ...p, orderId: e.target.value }))}/>
+              </div>
+              <div>
+                <label className="form-label">Mô tả vấn đề <span style={{ color:'var(--danger)' }}>*</span></label>
+                <textarea className="form-textarea" rows="5"
+                  placeholder="Mô tả chi tiết vấn đề bạn gặp phải..."
+                  value={form.description}
+                  onChange={e => setForm(p => ({ ...p, description: e.target.value }))}/>
+              </div>
+              <button className="btn btn-primary" onClick={handleSubmit} disabled={submitting}
+                style={{ alignSelf: 'flex-start', minWidth: 160 }}>
+                {submitting ? 'Đang gửi...' : '📤 Gửi ticket'}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* My tickets */}
+        {currentUser && (
+          <div>
+            <h3 style={{ fontFamily: 'Rajdhani', fontSize: 18, fontWeight: 700, marginBottom: 16 }}>
+              📋 Ticket của tôi
+            </h3>
+            {ticketsLoading ? (
+              <div style={{ textAlign: 'center', padding: 40 }}><div className="spinner" style={{ margin: '0 auto' }}/></div>
+            ) : myTickets.length === 0 ? (
+              <div className="card" style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+                Bạn chưa có ticket nào
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {myTickets.map(t => (
+                  <div key={t.id} className="card" style={{ padding: '16px 20px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8, marginBottom: t.adminReply ? 12 : 0 }}>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
+                          #{t.id.slice(-8).toUpperCase()} · {TICKET_TYPES.find(x=>x.value===t.type)?.label || t.type}
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                          {t.createdAt?.toDate?.()?.toLocaleDateString('vi-VN')} · {t.description?.slice(0,80)}{t.description?.length>80?'...':''}
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 20,
+                        background: `${STATUS_COLORS[t.status]}22`, color: STATUS_COLORS[t.status], border: `1px solid ${STATUS_COLORS[t.status]}44` }}>
+                        {STATUS_LABELS[t.status] || t.status}
+                      </span>
+                    </div>
+                    {t.adminReply && (
+                      <div style={{ padding: '10px 14px', background: 'rgba(0,212,255,0.06)', borderRadius: 8, fontSize: 13, borderLeft: '3px solid var(--accent)' }}>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>💬 Phản hồi từ Admin:</div>
+                        {t.adminReply}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        ))}
+        )}
       </div>
+    </div>
+  );
+};
+
+
+const TermsPage = () => (
+  <div className="page-wrapper" style={{padding:'40px 0 80px'}}>
+    <div className="container" style={{maxWidth:760}}>
+      <h1 style={{fontFamily:'Rajdhani',fontSize:32,fontWeight:700,marginBottom:8}}>Điều khoản sử dụng</h1>
+      <p style={{color:'var(--text-muted)',marginBottom:32}}>Cập nhật lần cuối: {new Date().toLocaleDateString('vi-VN')}</p>
+      {[
+        ['1. Giới thiệu', 'GameStore VN là nền tảng mua bán tài khoản game trực tuyến. Khi sử dụng dịch vụ, bạn đồng ý tuân thủ các điều khoản dưới đây.'],
+        ['2. Tài khoản người dùng', 'Bạn có trách nhiệm bảo mật thông tin đăng nhập. GameStore VN không chịu trách nhiệm về việc mất mát do lộ thông tin từ phía người dùng.'],
+        ['3. Giao dịch & Thanh toán', 'Tất cả giao dịch được thực hiện qua hệ thống nạp điểm. Mỗi giao dịch mua hàng là không hoàn tác sau khi thông tin tài khoản đã được giao. Bảo hành 24h sau mua trong trường hợp tài khoản lỗi do lỗi của người bán.'],
+        ['4. Nội dung & Tài khoản game', 'Chúng tôi không đảm bảo rằng tài khoản game được mua sẽ hoạt động vĩnh viễn do phụ thuộc vào nhà phát hành game. Người mua nên đổi mật khẩu ngay sau khi nhận tài khoản.'],
+        ['5. Cấm lạm dụng', 'Nghiêm cấm: gian lận, chargeback giả, tạo nhiều tài khoản để lạm dụng khuyến mãi, sử dụng dịch vụ cho mục đích bất hợp pháp.'],
+        ['6. Giới hạn trách nhiệm', 'GameStore VN không chịu trách nhiệm cho bất kỳ thiệt hại gián tiếp nào phát sinh từ việc sử dụng dịch vụ.'],
+        ['7. Thay đổi điều khoản', 'Chúng tôi có quyền thay đổi điều khoản bất kỳ lúc nào. Việc tiếp tục sử dụng sau khi thay đổi đồng nghĩa bạn chấp nhận điều khoản mới.'],
+        ['8. Liên hệ', 'Mọi thắc mắc về điều khoản, vui lòng liên hệ qua trang Hỗ trợ hoặc email support@gamestore.vn'],
+      ].map(([title, content]) => (
+        <div key={title} style={{marginBottom:24}}>
+          <h3 style={{fontFamily:'Rajdhani',fontSize:18,fontWeight:700,color:'var(--accent)',marginBottom:8}}>{title}</h3>
+          <p style={{color:'var(--text-secondary)',lineHeight:1.8,fontSize:14}}>{content}</p>
+        </div>
+      ))}
     </div>
   </div>
 );
 
+const PrivacyPage = () => (
+  <div className="page-wrapper" style={{padding:'40px 0 80px'}}>
+    <div className="container" style={{maxWidth:760}}>
+      <h1 style={{fontFamily:'Rajdhani',fontSize:32,fontWeight:700,marginBottom:8}}>Chính sách Bảo mật</h1>
+      <p style={{color:'var(--text-muted)',marginBottom:32}}>Cập nhật lần cuối: {new Date().toLocaleDateString('vi-VN')}</p>
+      {[
+        ['1. Thông tin chúng tôi thu thập', 'Chúng tôi thu thập: địa chỉ email, tên hiển thị, lịch sử giao dịch, địa chỉ IP. Chúng tôi KHÔNG thu thập thông tin thẻ tín dụng (thanh toán qua ngân hàng trực tiếp).'],
+        ['2. Mục đích sử dụng', 'Thông tin được dùng để: xác thực danh tính, xử lý giao dịch, gửi thông báo đơn hàng, phòng chống gian lận.'],
+        ['3. Bảo vệ dữ liệu', 'Dữ liệu được lưu trữ trên Firebase (Google Cloud) với mã hóa at-rest và in-transit. Chúng tôi không bán dữ liệu cho bên thứ ba.'],
+        ['4. Cookie & Tracking', 'Chúng tôi sử dụng localStorage để lưu giỏ hàng và phiên đăng nhập. Không có cookie theo dõi quảng cáo.'],
+        ['5. Quyền của bạn', 'Bạn có quyền: yêu cầu xem, sửa, hoặc xóa dữ liệu của mình. Liên hệ support@gamestore.vn để thực hiện yêu cầu.'],
+        ['6. Liên hệ', 'Nếu có câu hỏi về chính sách bảo mật, vui lòng liên hệ: support@gamestore.vn'],
+      ].map(([title, content]) => (
+        <div key={title} style={{marginBottom:24}}>
+          <h3 style={{fontFamily:'Rajdhani',fontSize:18,fontWeight:700,color:'var(--accent)',marginBottom:8}}>{title}</h3>
+          <p style={{color:'var(--text-secondary)',lineHeight:1.8,fontSize:14}}>{content}</p>
+        </div>
+      ))}
+    </div>
+  </div>
+);
 
 const ProfilePage = () => {
   const { currentUser, userProfile, fetchUserProfile } = useAuth();
   const [editing, setEditing] = React.useState(false);
+  const [changingPw, setChangingPw] = React.useState(false);
+  const [pwForm, setPwForm] = React.useState({ current: '', next: '', confirm: '' });
+  const [pwSaving, setPwSaving] = React.useState(false);
   const [displayName, setDisplayName] = React.useState('');
   const [saving, setSaving] = React.useState(false);
 
@@ -637,27 +992,30 @@ const ProfilePage = () => {
   React.useEffect(() => {
     if (!currentUser) return;
     setTxLoading(true);
-    Promise.all([
-      import('firebase/firestore').then(({ collection, query, where, getDocs }) =>
-        import('./firebase/config').then(({ db }) =>
-          getDocs(query(collection(db, 'topups'), where('userId','==',currentUser.uid)))
-            .then(snap => snap.docs.map(d => ({ id: d.id, type: 'topup', ...d.data() })))
-            .catch(() => [])
-        )
-      ),
-      import('firebase/firestore').then(({ collection, query, where, getDocs }) =>
-        import('./firebase/config').then(({ db }) =>
-          getDocs(query(collection(db, 'orders'), where('userId','==',currentUser.uid)))
-            .then(snap => snap.docs.map(d => ({ id: d.id, type: 'order', ...d.data() })))
-            .catch(() => [])
-        )
-      )
-    ]).then(([topups, orders]) => {
-      const all = [...topups, ...orders].sort((a,b) =>
-        (b.createdAt?.toDate?.() || 0) - (a.createdAt?.toDate?.() || 0)
-      ).slice(0, 20);
+    let unsubTopups, unsubOrders;
+    let topupsData = [], ordersData = [];
+    const merge = () => {
+      const all = [...topupsData, ...ordersData]
+        .sort((a,b) => (b.createdAt?.toDate?.() || 0) - (a.createdAt?.toDate?.() || 0))
+        .slice(0, 20);
       setTxHistory(all);
-    }).finally(() => setTxLoading(false));
+      setTxLoading(false);
+    };
+    import('firebase/firestore').then(({ collection, query, where, onSnapshot }) =>
+      import('./firebase/config').then(({ db }) => {
+        unsubTopups = onSnapshot(
+          query(collection(db,'topups'), where('userId','==',currentUser.uid)),
+          (snap) => { topupsData = snap.docs.map(d=>({id:d.id,type:'topup',...d.data()})); merge(); },
+          () => setTxLoading(false)
+        );
+        unsubOrders = onSnapshot(
+          query(collection(db,'orders'), where('userId','==',currentUser.uid)),
+          (snap) => { ordersData = snap.docs.map(d=>({id:d.id,type:'order',...d.data()})); merge(); },
+          () => setTxLoading(false)
+        );
+      })
+    );
+    return () => { unsubTopups?.(); unsubOrders?.(); };
   }, [currentUser]);
 
   if (!userProfile) return <div style={{ textAlign:'center', padding:80 }}><div className="spinner" style={{ margin:'0 auto' }} /></div>;
@@ -707,6 +1065,46 @@ const ProfilePage = () => {
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Email</div>
             <div style={{ fontSize: 15, color: 'var(--text-secondary)' }}>{currentUser?.email}</div>
           </div>
+
+          {/* Change Password */}
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 20, marginTop: 4 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Đổi mật khẩu</div>
+            {!changingPw ? (
+              <button className="btn btn-ghost btn-sm" onClick={() => setChangingPw(true)}>🔒 Đổi mật khẩu</button>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <input type="password" className="form-input" placeholder="Mật khẩu hiện tại"
+                  value={pwForm.current} onChange={e => setPwForm(p => ({ ...p, current: e.target.value }))} autoComplete="current-password"/>
+                <input type="password" className="form-input" placeholder="Mật khẩu mới (tối thiểu 6 ký tự)"
+                  value={pwForm.next} onChange={e => setPwForm(p => ({ ...p, next: e.target.value }))} autoComplete="new-password"/>
+                <input type="password" className="form-input" placeholder="Nhập lại mật khẩu mới"
+                  value={pwForm.confirm} onChange={e => setPwForm(p => ({ ...p, confirm: e.target.value }))} autoComplete="new-password"/>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button className="btn btn-primary btn-sm" disabled={pwSaving} onClick={async () => {
+                    if (!pwForm.current || !pwForm.next) { import('react-hot-toast').then(({default:t})=>t.error('Điền đầy đủ thông tin')); return; }
+                    if (pwForm.next !== pwForm.confirm) { import('react-hot-toast').then(({default:t})=>t.error('Mật khẩu mới không khớp')); return; }
+                    if (pwForm.next.length < 6) { import('react-hot-toast').then(({default:t})=>t.error('Mật khẩu tối thiểu 6 ký tự')); return; }
+                    setPwSaving(true);
+                    try {
+                      const { EmailAuthProvider, reauthenticateWithCredential, updatePassword } = await import('firebase/auth');
+                      const { auth } = await import('./firebase/config');
+                      const cred = EmailAuthProvider.credential(currentUser.email, pwForm.current);
+                      await reauthenticateWithCredential(currentUser, cred);
+                      await updatePassword(currentUser, pwForm.next);
+                      import('react-hot-toast').then(({default:t})=>t.success('✅ Đã đổi mật khẩu thành công!'));
+                      setChangingPw(false); setPwForm({ current:'', next:'', confirm:'' });
+                    } catch(e) {
+                      const msg = e.code === 'auth/wrong-password' ? 'Mật khẩu hiện tại không đúng' : e.message;
+                      import('react-hot-toast').then(({default:t})=>t.error(msg));
+                    } finally { setPwSaving(false); }
+                  }}>
+                    {pwSaving ? 'Đang lưu...' : 'Xác nhận đổi'}
+                  </button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => { setChangingPw(false); setPwForm({ current:'', next:'', confirm:'' }); }}>Huỷ</button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Số dư */}
@@ -716,7 +1114,7 @@ const ProfilePage = () => {
               <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Số dư tài khoản</div>
               <div style={{ fontSize: 28, fontWeight: 700, fontFamily: 'Rajdhani', color: 'var(--gold)' }}>{(userProfile.balance || 0).toLocaleString('vi-VN')}đ</div>
             </div>
-            <a href="/topup" className="btn btn-primary">+ Nạp tiền</a>
+            <Link to="/topup" className="btn btn-primary">+ Nạp tiền</Link>
           </div>
         </div>
 
@@ -729,9 +1127,9 @@ const ProfilePage = () => {
               { icon: '💰', label: 'Nạp tiền', href: '/topup' },
               { icon: '🎮', label: 'Dịch vụ game', href: '/services' },
             ].map(item => (
-              <a key={item.href} href={item.href} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', background: 'var(--bg-primary)', borderRadius: 10, border: '1px solid var(--border)', textDecoration: 'none', color: 'var(--text-primary)', fontSize: 14, fontWeight: 500, transition: 'border-color 0.2s' }}>
+              <Link key={item.href} to={item.href} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', background: 'var(--bg-primary)', borderRadius: 10, border: '1px solid var(--border)', textDecoration: 'none', color: 'var(--text-primary)', fontSize: 14, fontWeight: 500, transition: 'border-color 0.2s' }}>
                 <span style={{ fontSize: 20 }}>{item.icon}</span> {item.label}
-              </a>
+              </Link>
             ))}
           </div>
         </div>
@@ -790,12 +1188,17 @@ const UserLayout = ({ cart, addToCart, setCart }) => (
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/orders" element={<ProtectedRoute><UserOrdersPage /></ProtectedRoute>} />
+      <Route path="/orders/:id" element={<ProtectedRoute><OrderDetailPage /></ProtectedRoute>} />
       <Route path="/vouchers" element={<ProtectedRoute><MyVouchersPage /></ProtectedRoute>} />
       <Route path="/support" element={<SupportPage />} />
       <Route path="/services" element={<ServicesPage />} />
       <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
-      <Route path="/terms" element={<SupportPage />} />
-      <Route path="/privacy" element={<SupportPage />} />
+
+      <Route path="/privacy" element={<PrivacyPage />} />
+      <Route path="/terms" element={<TermsPage />} />
+      <Route path="/wishlist" element={<ProtectedRoute><WishlistPage onAddToCart={addToCart} /></ProtectedRoute>} />
+      <Route path="/referral" element={<ProtectedRoute><ReferralPage /></ProtectedRoute>} />
+      <Route path="*" element={<NotFoundPage />} />
     </Routes>
     <Footer />
   </>
@@ -803,8 +1206,22 @@ const UserLayout = ({ cart, addToCart, setCart }) => (
 
 const AppContent = () => {
   useServerWakeup(); // ✅ Ping server ngay khi app load → tránh delay 50s
+  const { userProfile: _up } = useAuth();
 
-  // ✅ FIX: Persist cart trong sessionStorage (tránh mất giỏ hàng khi F5)
+  // ✅ Maintenance mode: đọc từ Firestore settings/global
+  const [maintenance, setMaintenance] = useState(false);
+  const [maintenanceChecked, setMaintenanceChecked] = useState(false);
+  React.useEffect(() => {
+    import('firebase/firestore').then(({ doc, onSnapshot }) =>
+      import('./firebase/config').then(({ db }) => {
+        const unsub = onSnapshot(doc(db, 'settings', 'global'), (snap) => {
+          setMaintenance(snap.exists() ? (snap.data().maintenanceMode || false) : false);
+          setMaintenanceChecked(true);
+        }, () => setMaintenanceChecked(true));
+        return unsub;
+      })
+    );
+  }, []);
   const [cart, setCart] = useState(() => {
     try {
       const saved = localStorage.getItem('gs_cart');
@@ -820,17 +1237,43 @@ const AppContent = () => {
     });
   };
 
+  // ✅ [M5] Cross-tab cart sync via localStorage storage event
+  useEffect(() => {
+    const handleStorageChange = (e) => {
+      if (e.key === 'gs_cart' && e.newValue !== null) {
+        try {
+          const updated = JSON.parse(e.newValue);
+          setCart(updated);
+        } catch {}
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
   // ✅ FIX T2-02: Validate cart items against Firestore on startup
   React.useEffect(() => {
     if (cart.length === 0) return;
     import('firebase/firestore').then(({ doc, getDoc }) => {
       import('./firebase/config').then(async ({ db }) => {
-        const results = await Promise.allSettled(cart.map(item => getDoc(doc(db, 'accounts', item.id))));
+        // Dedupe account IDs to avoid redundant fetches (multi-slot same account)
+        const uniqueIds = [...new Set(cart.map(item => item.id))];
+        const snapMap = {};
+        await Promise.allSettled(uniqueIds.map(id =>
+          getDoc(doc(db, 'accounts', id)).then(snap => { snapMap[id] = snap; })
+        ));
+        // For each cart slot, verify account exists and has remaining stock
         let changed = false;
-        const validCart = cart.filter((item, i) => {
-          const r = results[i];
-          if (r.status === 'fulfilled' && r.value.exists() && r.value.data().status === 'available') return true;
-          changed = true; return false;
+        const soldCountTracker = {}; // how many slots of each account we keep
+        const validCart = cart.filter(item => {
+          const snap = snapMap[item.id];
+          if (!snap || !snap.exists()) { changed = true; return false; }
+          const d = snap.data();
+          const used = soldCountTracker[item.id] || 0;
+          const stockLeft = (d.quantity || 1) - (d.soldCount || 0) - used;
+          if (d.status !== 'available' || stockLeft <= 0) { changed = true; return false; }
+          soldCountTracker[item.id] = used + 1;
+          return true;
         });
         if (changed) {
           setCartPersist(validCart);
@@ -844,16 +1287,51 @@ const AppContent = () => {
 
   const addToCart = (account) =>
     setCartPersist(prev => {
-      if (prev.find(i => i.id === account.id)) return prev;
-      if (prev.length >= 20) {
-        // toast via window event since we're outside JSX
-        import('react-hot-toast').then(({ default: toast }) => toast.error('Giỏ hàng tối đa 20 sản phẩm!'));
+      const qty     = Math.max(1, account.buyQty || 1);
+      // How many slots of this account are already in cart
+      const already = prev.filter(i => i.id === account.id).length;
+      // How many more we can add (limited by stock and cart cap of 20)
+      const maxAdd  = Math.min(qty, (account.quantity || 1) - already, 20 - prev.length);
+      if (maxAdd <= 0) {
+        import('react-hot-toast').then(({ default: toast }) => {
+          if (prev.length >= 20) toast.error('Giỏ hàng tối đa 20 sản phẩm!');
+          else toast.error('Đã thêm tối đa số lượng có sẵn!');
+        });
         return prev;
       }
-      return [...prev, account];
+      // Create maxAdd separate cart entries, each with a unique cartKey
+      const ts = Date.now();
+      const newItems = Array.from({ length: maxAdd }, (_, i) => ({
+        ...account,
+        cartKey: account.id + '_' + ts + '_' + (already + i),
+        buyQty: undefined,
+      }));
+      return [...prev, ...newItems];
     });
 
+  // Maintenance mode gate (allow admins through)
+  if (maintenanceChecked && maintenance && _up?.role !== 'admin') {
+    return (
+      <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+        height:'100vh', gap:24, padding:24, textAlign:'center', background:'var(--bg-primary)' }}>
+        <div style={{ fontSize:72 }}>🔧</div>
+        <h1 style={{ fontFamily:'Rajdhani', fontSize:36, fontWeight:700, color:'var(--accent)' }}>
+          Đang bảo trì
+        </h1>
+        <p style={{ color:'var(--text-muted)', fontSize:16, maxWidth:480, lineHeight:1.7 }}>
+          GameStore VN đang được nâng cấp để phục vụ bạn tốt hơn.<br/>
+          Vui lòng quay lại sau. Xin lỗi vì sự bất tiện này!
+        </p>
+        <div style={{ fontSize:13, color:'var(--text-muted)', padding:'12px 24px', borderRadius:8,
+          border:'1px solid var(--border)', background:'var(--bg-card)' }}>
+          📧 Liên hệ: support@gamestore.vn
+        </div>
+      </div>
+    );
+  }
+
   return (
+    <ErrorBoundary>
     <Router>
       <Toaster position="top-right" />
       <Routes>
@@ -871,10 +1349,16 @@ const AppContent = () => {
           <Route path="game-types" element={<AdminGameTypes />} />
           <Route path="users" element={<AdminUsersPage />} />
           <Route path="settings" element={<AdminSettingsPage />} />
+          <Route path="flash-sales" element={<AdminFlashSales />} />
+          <Route path="tickets" element={<AdminTickets />} />
+          <Route path="audit-log" element={<AdminAuditLog />} />
+          <Route path="bulk-import" element={<AdminBulkImport />} />
+          <Route path="ratings" element={<AdminRatings />} />
         </Route>
         <Route path="/*" element={<UserLayout cart={cart} addToCart={addToCart} setCart={setCartPersist} />} />
       </Routes>
     </Router>
+    </ErrorBoundary>
   );
 };
 

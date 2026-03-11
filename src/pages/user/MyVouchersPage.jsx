@@ -1,6 +1,6 @@
 // src/pages/user/MyVouchersPage.jsx
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { useAuth } from '../../context/AuthContext';
 import { Tag, Copy, Calendar, Percent, CheckCircle, Clock, AlertCircle } from 'lucide-react';
@@ -14,27 +14,20 @@ const MyVouchersPage = () => {
   const [vouchers, setVouchers] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => { if (currentUser) fetchMyVouchers(); }, [currentUser]);
-
-  const fetchMyVouchers = async () => {
-    try {
-      // ✅ FIX: Query cả 3 trường hợp targetUserId: '', null, hoặc không tồn tại
-      // Firestore không hỗ trợ OR query trực tiếp → fetch tất cả active rồi filter
-      const [allSnap, privateSnap] = await Promise.all([
-        getDocs(query(collection(db, 'vouchers'), where('active', '==', true))),
-        getDocs(query(collection(db, 'vouchers'), where('active', '==', true), where('targetUserId', '==', currentUser.email))),
-      ]);
-      const privateIds = new Set(privateSnap.docs.map(d => d.id));
-      const all = allSnap.docs.map(d => {
-        const data = d.data();
-        const isPublic = !data.targetUserId || data.targetUserId === '';
-        const isPersonal = data.targetUserId === currentUser.email;
-        if (!isPublic && !isPersonal) return null; // voucher của người khác → bỏ qua
-        return { id: d.id, ...data, isPersonal };
-      }).filter(Boolean);
-      // Loại bỏ hết lượt dùng và expired
+  useEffect(() => {
+    if (!currentUser) return;
+    setLoading(true);
+    // Firestore doesn't support OR queries → subscribe to all active and filter
+    let allData = [], privateData = [];
+    const process = () => {
+      const privateIds = new Set(privateData.map(d => d.id));
       const now = new Date();
-      const valid = all.filter(v => {
+      const valid = [...allData].map(d => {
+        const isPublic = !d.targetUserId || d.targetUserId === '';
+        const isPersonal = d.targetUserId === currentUser.email;
+        if (!isPublic && !isPersonal) return null;
+        return { ...d, isPersonal };
+      }).filter(Boolean).filter(v => {
         if (v.usedCount >= v.usageLimit) return false;
         if (v.expiresAt) {
           const exp = v.expiresAt?.toDate ? v.expiresAt.toDate() : new Date(v.expiresAt);
@@ -43,9 +36,22 @@ const MyVouchersPage = () => {
         return true;
       });
       setVouchers(valid);
-    } catch (e) { console.error(e); }
-    finally { setLoading(false); }
-  };
+      setLoading(false);
+    };
+    const unsub1 = onSnapshot(
+      query(collection(db,'vouchers'), where('active','==',true)),
+      (snap) => { allData = snap.docs.map(d=>({id:d.id,...d.data()})); process(); },
+      () => setLoading(false)
+    );
+    const unsub2 = onSnapshot(
+      query(collection(db,'vouchers'), where('active','==',true), where('targetUserId','==',currentUser.email)),
+      (snap) => { privateData = snap.docs.map(d=>({id:d.id,...d.data()})); process(); },
+      () => {}
+    );
+    return () => { unsub1(); unsub2(); };
+  }, [currentUser]);
+
+  const fetchMyVouchers = () => {}; // no-op: replaced by onSnapshot
 
   const copyCode = (code) => {
     navigator.clipboard.writeText(code);

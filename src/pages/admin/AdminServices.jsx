@@ -1,7 +1,8 @@
 // src/pages/admin/AdminServices.jsx
+import { useConfirm } from '../../components/shared/ConfirmModal';
 import React, { useState, useEffect } from 'react';
 import {
-  collection, addDoc, getDocs, updateDoc, deleteDoc,
+  collection, addDoc, getDocs, onSnapshot, updateDoc, deleteDoc,
   doc, serverTimestamp, query, orderBy
 } from 'firebase/firestore';
 import { db } from '../../firebase/config';
@@ -51,13 +52,20 @@ const ManageServicesTab = () => {
     featured: false, available: true, order: 99,
   });
 
-  useEffect(() => { fetch(); }, []);
-  const fetch = async () => {
+  useEffect(() => {
+    setLoading(true);
+    let unsub;
     try {
-      const snap = await getDocs(query(collection(db, 'services'), orderBy('order', 'asc')));
-      setServices(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    } catch (e) { console.error(e); } finally { setLoading(false); }
-  };
+      unsub = onSnapshot(
+        query(collection(db, 'services'), orderBy('order', 'asc')),
+        (snap) => { setServices(snap.docs.map(d => ({ id: d.id, ...d.data() }))); setLoading(false); },
+        (err) => { console.error(err); setLoading(false); }
+      );
+    } catch(e) { setLoading(false); }
+    return () => unsub?.();
+  }, []);
+
+  const fetch = () => {}; // no-op: onSnapshot handles realtime
 
   const openNew = () => {
     setEditingId(null);
@@ -95,7 +103,7 @@ const ManageServicesTab = () => {
         await addDoc(collection(db, 'services'), { ...data, createdAt: serverTimestamp() });
         toast.success('Đã tạo dịch vụ mới!', T);
       }
-      setShowForm(false); setEditingId(null); fetch();
+      setShowForm(false); setEditingId(null); // onSnapshot auto-refreshes
     } catch (e) { toast.error(e.message, T); }
   };
 
@@ -105,7 +113,7 @@ const ManageServicesTab = () => {
   };
 
   const remove = async (id) => {
-    if (!window.confirm('Xoá dịch vụ này?')) return;
+    if (!(await confirm('Xoá dịch vụ này?'))) return;
     await deleteDoc(doc(db, 'services', id));
     setServices(s => s.filter(x => x.id !== id));
     toast.success('Đã xoá', T);
@@ -252,13 +260,20 @@ const ServiceOrdersTab = () => {
   const [expandedId, setExpandedId] = useState(null);
   const [filterStatus, setFilterStatus] = useState('all');
 
-  useEffect(() => { fetch(); }, []);
-  const fetch = async () => {
+  useEffect(() => {
+    setLoading(true);
+    let unsub;
     try {
-      const snap = await getDocs(query(collection(db, 'serviceOrders'), orderBy('createdAt', 'desc')));
-      setOrders(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    } catch (e) { console.error(e); } finally { setLoading(false); }
-  };
+      unsub = onSnapshot(
+        query(collection(db, 'serviceOrders'), orderBy('createdAt', 'desc')),
+        (snap) => { setOrders(snap.docs.map(d => ({ id: d.id, ...d.data() }))); setLoading(false); },
+        (err) => { console.error(err); setLoading(false); }
+      );
+    } catch(e) { setLoading(false); }
+    return () => unsub?.();
+  }, []);
+
+  const fetch = () => {}; // no-op: onSnapshot handles realtime
 
   const updateStatus = async (id, status) => {
     await updateDoc(doc(db, 'serviceOrders', id), { status, updatedAt: serverTimestamp() });
@@ -362,6 +377,7 @@ const ServiceOrdersTab = () => {
 
 // ─── MAIN ────────────────────────────────────────────────────────
 const AdminServices = () => {
+  const { confirm, ConfirmModal } = useConfirm();
   const [tab, setTab] = useState('orders');
   return (
     <div className="admin-vouchers">

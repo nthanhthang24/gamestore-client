@@ -1,12 +1,50 @@
 // src/pages/user/AuthPages.jsx
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Eye, EyeOff, Zap, Mail, Lock, User, AlertCircle } from 'lucide-react';
 import { sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../../firebase/config';
+import {
+  collection, query, where, getDocs, addDoc, updateDoc,
+  doc, serverTimestamp, increment
+} from 'firebase/firestore';
+import { db } from '../../firebase/config';
 import toast from 'react-hot-toast';
 import './AuthPages.css';
+
+const NEW_USER_BONUS   = 10000; // 10k cho người đăng ký qua referral
+
+const GoogleLoginButton = () => {
+  const { loginWithGoogle } = useAuth();
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+  const handleGoogle = async () => {
+    setLoading(true);
+    try {
+      await loginWithGoogle?.();
+      if (navigate) navigate('/');
+    } catch(e) {
+      import('react-hot-toast').then(({default:t})=>t.error(e.message||'Đăng nhập Google thất bại'));
+    } finally { setLoading(false); }
+  };
+  return (
+    <button onClick={handleGoogle} disabled={loading}
+      style={{width:'100%',padding:'10px 16px',borderRadius:8,border:'1px solid var(--border)',background:'var(--bg-card)',
+        color:'var(--text-primary)',fontSize:14,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',
+        justifyContent:'center',gap:10,marginBottom:4,transition:'border-color .2s'}}
+      onMouseEnter={e=>e.currentTarget.style.borderColor='var(--accent)'}
+      onMouseLeave={e=>e.currentTarget.style.borderColor='var(--border)'}>
+      <svg width="18" height="18" viewBox="0 0 18 18">
+        <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/>
+        <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/>
+        <path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/>
+        <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/>
+      </svg>
+      {loading ? 'Đang xử lý...' : 'Đăng nhập với Google'}
+    </button>
+  );
+};
 
 export const LoginPage = () => {
   const { login, loginWithGoogle, currentUser } = useAuth();
@@ -135,13 +173,17 @@ export const LoginPage = () => {
 export const RegisterPage = () => {
   const { register, currentUser } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  // Read ?ref= from URL
+  const urlRefCode = searchParams.get('ref') || '';
 
   // Nếu đã đăng nhập → redirect về trang chủ
   React.useEffect(() => {
     if (currentUser) navigate('/', { replace: true });
   }, [currentUser, navigate]); // ✅ FIX T1-01
 
-  const [form, setForm] = useState({ displayName: '', email: '', password: '', confirm: '' });
+  const [form, setForm] = useState({ displayName: '', email: '', password: '', confirm: '', refCode: urlRefCode });
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -155,8 +197,49 @@ export const RegisterPage = () => {
     if (form.password.length < 6) { setError('Mật khẩu phải có ít nhất 6 ký tự'); return; }
     setLoading(true);
     try {
-      await register(form.email, form.password, form.displayName);
-      toast.success('Đăng ký thành công! Chào mừng bạn!', { style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' } });
+      const newUser = await register(form.email, form.password, form.displayName);
+      const uid = newUser?.user?.uid; // UserCredential.user.uid
+
+      // ── Referral handling ──────────────────────────────────
+      const refCode = form.refCode?.trim().toUpperCase();
+      if (refCode && uid) {
+        // Tìm referrer: uid của họ bắt đầu bằng refCode (lowercase)
+        // Firebase UID là 28 ký tự alphanumeric
+        const lowCode = refCode.toLowerCase();
+        let referrerId = null;
+        try {
+          const refUserSnap = await getDocs(
+            query(collection(db, 'users'),
+              where('uid', '>=', lowCode),
+              where('uid', '<=', lowCode + '\uf8ff')
+            )
+          );
+          // Lọc chính xác: uid phải bắt đầu bằng lowCode
+          const referrerDoc = refUserSnap.docs.find(d => d.data().uid?.startsWith(lowCode));
+          referrerId = referrerDoc ? referrerDoc.data().uid : null;
+        } catch (lookupErr) {
+          console.warn('Referrer lookup failed:', lookupErr.message);
+        }
+
+        // Ghi referral record (credited=false, chờ lần nạp tiền đầu)
+        addDoc(collection(db, 'referrals'), {
+          refCode,
+          referrerId,          // uid của người giới thiệu (null nếu không tìm được)
+          newUserEmail: form.email,
+          newUserId:    uid,
+          credited:     false,
+          createdAt:    serverTimestamp(),
+        }).catch(() => {});
+
+        // Cộng 10k cho người đăng ký ngay lập tức
+        updateDoc(doc(db, 'users', uid), { balance: increment(NEW_USER_BONUS) })
+          .catch(() => {}); // Không chặn flow nếu lỗi
+      }
+      // ─────────────────────────────────────────────────────────
+
+      toast.success('Đăng ký thành công! Chào mừng bạn!' + (refCode ? ' Nhận ngay 10.000đ!' : ''),
+        { style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' } }
+      );
       navigate('/');
     } catch (err) {
       if (err.code === 'auth/email-already-in-use') setError('Email này đã được sử dụng');
@@ -211,6 +294,17 @@ export const RegisterPage = () => {
               <Lock size={16} className="input-icon" />
               <input type="password" name="confirm" className="form-input" style={{ paddingLeft: '40px' }} placeholder="Nhập lại mật khẩu" value={form.confirm} onChange={handleChange} required />
             </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">
+              Mã giới thiệu
+              {urlRefCode && <span style={{ color:'var(--success)', fontSize:12, marginLeft:8 }}>✅ Đã áp dụng</span>}
+              <span style={{ color:'var(--text-muted)', fontWeight:400 }}> (nếu có — nhận 10.000đ)</span>
+            </label>
+            <input type="text" name="refCode" className="form-input"
+              placeholder="Nhập mã giới thiệu (8 ký tự)" value={form.refCode}
+              onChange={handleChange} maxLength={8}
+              style={{ textTransform:'uppercase', letterSpacing:'2px', fontFamily:'monospace' }} />
           </div>
           <button type="submit" className="btn btn-primary w-full btn-lg" disabled={loading}>
             {loading ? 'Đang tạo tài khoản...' : 'Đăng ký'}

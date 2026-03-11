@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, getDocs, addDoc, query, where, orderBy, serverTimestamp, doc, updateDoc, increment, Timestamp } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { useAuth } from '../../context/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import {
   Sword, Lock, UserCheck, Zap, ChevronRight, Star,
   Clock, MessageCircle, Shield, CheckCircle, AlertCircle,

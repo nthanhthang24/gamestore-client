@@ -1,4 +1,5 @@
 // src/pages/admin/AdminGameTypes.jsx
+import { useConfirm } from '../../components/shared/ConfirmModal';
 import React, { useState, useEffect } from 'react';
 import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../firebase/config';
@@ -8,6 +9,7 @@ import toast from 'react-hot-toast';
 const EMOJI_OPTIONS = ['🎮','🏆','🎯','🔥','⚔️','⚡','🌟','💎','🛡️','🗡️','🎪','🚀','🎲','👑','🦁','🐉','🌈','💥','🎭','🏅'];
 
 const AdminGameTypes = () => {
+  const { confirm, ConfirmModal } = useConfirm();
   const [gameTypes, setGameTypes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null); // id đang edit, 'new' nếu thêm mới
@@ -60,7 +62,7 @@ const AdminGameTypes = () => {
   };
 
   const handleDelete = async (gt) => {
-    if (!window.confirm(`Xóa game "${gt.name}"? Các tài khoản dùng loại này sẽ không bị ảnh hưởng.`)) return;
+    if (!(await confirm(`Xóa game "${gt.name}"? Các tài khoản dùng loại này sẽ không bị ảnh hưởng.`))) return;
     try {
       await deleteDoc(doc(db, 'gameTypes', gt.id));
       toast.success(`Đã xóa "${gt.name}"`);

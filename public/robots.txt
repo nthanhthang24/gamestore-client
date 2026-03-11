@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /cart
+Disallow: /profile
+Disallow: /orders
+
+Sitemap: https://playtogethermarket.vercel.app/sitemap.xml

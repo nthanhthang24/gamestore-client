@@ -1,10 +1,13 @@
 // src/hooks/useVoucher.js
 import { useState } from 'react';
-import { collection, query, where, getDocs, doc, updateDoc, increment } from 'firebase/firestore';
+import {
+  collection, query, where, getDocs,
+  doc, updateDoc, increment, arrayUnion, runTransaction
+} from 'firebase/firestore';
 import { db } from '../firebase/config';
 
 export const useVoucher = () => {
-  const [voucher, setVoucher] = useState(null);
+  const [voucher, setVoucher]           = useState(null);
   const [voucherError, setVoucherError] = useState('');
   const [voucherLoading, setVoucherLoading] = useState(false);
 
@@ -15,35 +18,40 @@ export const useVoucher = () => {
     setVoucher(null);
 
     try {
-      const q = query(
+      const snap = await getDocs(query(
         collection(db, 'vouchers'),
         where('code', '==', code.toUpperCase().trim()),
         where('active', '==', true)
-      );
-      const snap = await getDocs(q);
-
+      ));
       if (snap.empty) { setVoucherError('Mã voucher không tồn tại hoặc đã bị vô hiệu'); return false; }
 
       const vData = { id: snap.docs[0].id, ...snap.docs[0].data() };
 
-      // Kiểm tra hết hạn
+      // Hết hạn
       if (vData.expiresAt) {
-        const expDate = vData.expiresAt?.toDate ? vData.expiresAt.toDate() : new Date(vData.expiresAt);
-        if (expDate < new Date()) { setVoucherError('Mã voucher đã hết hạn'); return false; }
+        const exp = vData.expiresAt?.toDate ? vData.expiresAt.toDate() : new Date(vData.expiresAt);
+        if (exp < new Date()) { setVoucherError('Mã voucher đã hết hạn'); return false; }
       }
-
-      // Kiểm tra số lần dùng
-      if (vData.usedCount >= vData.usageLimit) { setVoucherError('Mã voucher đã hết lượt sử dụng'); return false; }
-
-      // Kiểm tra đơn tối thiểu
-      if (vData.minOrder > 0 && orderTotal < vData.minOrder) {
-        setVoucherError(`Đơn hàng tối thiểu ${vData.minOrder.toLocaleString('vi-VN')}đ để dùng mã này`);
+      // Global usage limit
+      if (vData.usageLimit > 0 && (vData.usedCount || 0) >= vData.usageLimit) {
+        setVoucherError('Mã voucher đã hết lượt sử dụng'); return false;
+      }
+      // ✅ [B2/M8] Per-user limit — usedBy là array email đã dùng
+      const perUser = vData.perUserLimit || 1; // default 1 lần / user
+      const usedBy = vData.usedBy || [];
+      const timesUsedByMe = usedBy.filter(e => e === userEmail).length;
+      if (timesUsedByMe >= perUser) {
+        setVoucherError(`Bạn đã dùng mã này ${timesUsedByMe} lần (tối đa ${perUser} lần)`);
         return false;
       }
-
-      // Kiểm tra user cụ thể
+      // Đơn tối thiểu
+      if (vData.minOrder > 0 && orderTotal < vData.minOrder) {
+        setVoucherError(`Đơn tối thiểu ${vData.minOrder.toLocaleString('vi-VN')}đ`);
+        return false;
+      }
+      // User cụ thể
       if (vData.targetUserId && vData.targetUserId !== userEmail) {
-        setVoucherError('Mã voucher này không áp dụng cho tài khoản của bạn');
+        setVoucherError('Mã này không áp dụng cho tài khoản của bạn');
         return false;
       }
 
@@ -64,11 +72,26 @@ export const useVoucher = () => {
     return voucher.maxDiscount > 0 ? Math.min(pct, voucher.maxDiscount) : pct;
   };
 
-  const markVoucherUsed = async (voucherId) => {
-    await updateDoc(doc(db, 'vouchers', voucherId), { usedCount: increment(1) });
+  // ✅ [B3] Gọi TRONG transaction từ CartPage — không dùng standalone nữa
+  const getVoucherUpdatePayload = (userEmail) => ({
+    usedCount: increment(1),
+    usedBy: arrayUnion(userEmail), // track per-user
+  });
+
+  // Legacy standalone (vẫn giữ để không break nếu có nơi nào gọi)
+  const markVoucherUsed = async (voucherId, userEmail) => {
+    await updateDoc(doc(db, 'vouchers', voucherId), {
+      usedCount: increment(1),
+      usedBy: arrayUnion(userEmail || ''),
+    });
   };
 
   const clearVoucher = () => { setVoucher(null); setVoucherError(''); };
 
-  return { voucher, voucherError, voucherLoading, applyVoucher, calculateDiscount, markVoucherUsed, clearVoucher };
+  return {
+    voucher, voucherError, voucherLoading,
+    applyVoucher, calculateDiscount,
+    markVoucherUsed, getVoucherUpdatePayload,
+    clearVoucher
+  };
 };

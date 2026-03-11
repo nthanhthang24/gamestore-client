@@ -26,10 +26,11 @@ const CartPage = ({ cart, setCart }) => {
   const lastCheckoutTime = useRef(0); // T5-01: rate limit between checkouts
   const [voucherCode, setVoucherCode] = useState('');
 
-  const { voucher, voucherError, voucherLoading, applyVoucher, calculateDiscount, clearVoucher } = useVoucher();
+  const { voucher, voucherError, voucherLoading, applyVoucher, calculateDiscount, getVoucherUpdatePayload, clearVoucher } = useVoucher();
   const { getBulkDiscount } = useBulkDiscount();
 
-  const removeItem = (id) => setCart(prev => prev.filter(item => item.id !== id));
+  // Remove by cartKey (unique per slot) or fallback index
+  const removeItem = (cartKey) => setCart(prev => prev.filter(item => (item.cartKey || item.id) !== cartKey));
 
   // Giá hiển thị (có thể bị flash sale tác động từ bên ngoài qua salePrice)
   const subtotal    = cart.reduce((sum, item) => sum + (item.salePrice || item.price), 0);
@@ -55,7 +56,6 @@ const CartPage = ({ cart, setCart }) => {
     if (!currentUser) { navigate('/login'); return; }
     if (cart.length === 0) return;
     if (checkoutInProgress.current) return;
-    // T5-01: chặn 2 checkout trong vòng 3s (chống multi-tab)
     const now = Date.now();
     if (now - lastCheckoutTime.current < 3000) {
       toast.error('Vui lòng đợi vài giây trước khi thử lại.', TS);
@@ -66,169 +66,200 @@ const CartPage = ({ cart, setCart }) => {
     setLoading(true);
 
     try {
-      // ── Bước 1: Re-fetch giá + bulk discount rules từ DB (không tin client) ──
-      const bulkRulesSnap = await Promise.all([]); // rules đã load trong hook, dùng lại
-      // Fetch account data từ Firestore để verify
-      const accountRefs = cart.map(item => doc(db, 'accounts', item.id));
+      // ── Group cart items by account.id (buyer may have N units of same listing) ──
+      // uniqueIds preserves order of first appearance
+      const uniqueIds = [...new Set(cart.map(i => i.id))];
+      const accountRefs  = uniqueIds.map(id => doc(db, 'accounts', id));
       const accountSnaps = await Promise.all(accountRefs.map(ref => getDoc(ref)));
+      const snapByDocId  = {};
+      uniqueIds.forEach((id, idx) => { snapByDocId[id] = accountSnaps[idx]; });
 
-      // ── Bước 2: Validate tất cả trước khi bắt đầu transaction ──
-      for (let i = 0; i < cart.length; i++) {
-        const snap = accountSnaps[i];
+      // ── Pre-validate each unique doc ──
+      for (const id of uniqueIds) {
+        const snap = snapByDocId[id];
+        const cartItem = cart.find(x => x.id === id);
         if (!snap.exists()) {
-          toast.error(`Tài khoản "${cart[i].title}" không còn tồn tại.`, TS);
+          toast.error(`Tài khoản "${cartItem?.title}" không còn tồn tại.`, TS);
           return;
         }
-        if (snap.data().status !== 'available') {
-          toast.error(`Tài khoản "${cart[i].title}" đã được bán. Vui lòng xoá khỏi giỏ.`, TS);
-          setCart(prev => prev.filter(x => x.id !== cart[i].id));
+        const d = snap.data();
+        const soldCount  = d.soldCount  || 0;
+        const quantity   = d.quantity   || 1;
+        const wantUnits  = cart.filter(x => x.id === id).length;
+        const stockLeft  = quantity - soldCount;
+        if (d.status !== 'available' || stockLeft <= 0) {
+          toast.error(`Tài khoản "${cartItem?.title}" đã hết hàng. Vui lòng xoá khỏi giỏ.`, TS);
+          setCart(prev => prev.filter(x => x.id !== id));
+          return;
+        }
+        if (wantUnits > stockLeft) {
+          toast.error(`"${cartItem?.title}": chỉ còn ${stockLeft} nick, bạn đang chọn ${wantUnits}.`, TS);
           return;
         }
       }
 
-      // ── Bước 3: Tính lại total từ giá DB (không tin salePrice client) ──
-      // Giá DB là giá gốc; flash sale discount được tính từ client nhưng
-      // ta giới hạn: salePrice phải <= price từ DB (không cho phép giá âm/spoofed)
+      // ── Build verifiedItems with correct per-slot credentials ──
       let verifiedSubtotal = 0;
-      const verifiedItems = accountSnaps.map((snap, i) => {
-        const dbPrice = snap.data().price;
+      const unitOffsetByDoc = {}; // tracks how many slots we've assigned per doc so far
+      uniqueIds.forEach(id => { unitOffsetByDoc[id] = 0; });
+
+      const verifiedItems = cart.map((cartItem) => {
+        const snap   = snapByDocId[cartItem.id];
         const dbData = snap.data();
-        const clientSalePrice = cart[i].salePrice;
-        // ✅ Chỉ accept salePrice nếu nó hợp lý: > 0 và <= dbPrice
+        const dbPrice = dbData.price;
+        const clientSalePrice = cartItem.salePrice;
         const finalPrice = (clientSalePrice && clientSalePrice > 0 && clientSalePrice <= dbPrice)
-          ? clientSalePrice
-          : dbPrice;
+          ? clientSalePrice : dbPrice;
         verifiedSubtotal += finalPrice;
-        // ✅ Lấy login credentials từ DB (không lấy từ client)
+
+        // Pick correct credential slot
+        const baseSoldCount = dbData.soldCount || 0;
+        const offset = unitOffsetByDoc[cartItem.id];
+        const slotIndex = baseSoldCount + offset;
+        unitOffsetByDoc[cartItem.id]++;
+        const creds = dbData.credentials;
+        const slot = (creds && creds.length > slotIndex) ? creds[slotIndex] : {
+          loginUsername:    dbData.loginUsername    || '',
+          loginPassword:    dbData.loginPassword    || '',
+          loginEmail:       dbData.loginEmail       || '',
+          loginNote:        dbData.loginNote        || '',
+          attachmentContent: dbData.attachmentContent || null,
+          attachmentUrl:    dbData.attachmentUrl    || null,   // legacy compat
+          attachmentName:   dbData.attachmentName   || null,
+        };
         return {
-          ...cart[i],
-          verifiedPrice: finalPrice,
+          ...cartItem,
+          verifiedPrice:    finalPrice,
           dbPrice,
-          loginUsername: dbData.loginUsername || '',
-          loginPassword: dbData.loginPassword || '',
-          loginEmail: dbData.loginEmail || '',
-          loginNote: dbData.loginNote || '',
+          loginUsername:    slot.loginUsername    || '',
+          loginPassword:    slot.loginPassword    || '',
+          loginEmail:       slot.loginEmail       || '',
+          loginNote:        slot.loginNote        || '',
+          attachmentContent: slot.attachmentContent || null,
+          attachmentUrl:    slot.attachmentUrl    || null,   // legacy compat
+          attachmentName:   slot.attachmentName   || null,
+          _slotIndex:       slotIndex,
         };
       });
 
-      // ── Bước 4: Tính lại bulk discount từ verified subtotal ──
+      // ── Re-compute discounts from verified prices ──
       const { discount: verifiedBulkDiscount, rule: verifiedBulkRule } = getBulkDiscount(verifiedSubtotal, cart.length);
       const verifiedAfterBulk = verifiedSubtotal - verifiedBulkDiscount;
 
-      // ── Bước 5: Re-validate voucher với giá đã verify ──
       let verifiedVoucherDiscount = 0;
       if (voucher) {
-        // Re-fetch voucher từ DB để đảm bảo vẫn hợp lệ
         const voucherSnap = await getDoc(doc(db, 'vouchers', voucher.id));
         if (!voucherSnap.exists() || !voucherSnap.data().active) {
-          toast.error('Voucher không còn hợp lệ.', TS);
-          clearVoucher();
-          return;
+          toast.error('Voucher không còn hợp lệ.', TS); clearVoucher(); return;
         }
         const vData = voucherSnap.data();
-        const now = new Date();
-        if (vData.expiresAt && (vData.expiresAt.toDate ? vData.expiresAt.toDate() : new Date(vData.expiresAt)) < now) {
-          toast.error('Voucher đã hết hạn.', TS);
-          clearVoucher();
-          return;
+        const now2 = new Date();
+        if (vData.expiresAt && (vData.expiresAt.toDate ? vData.expiresAt.toDate() : new Date(vData.expiresAt)) < now2) {
+          toast.error('Voucher đã hết hạn.', TS); clearVoucher(); return;
         }
         if (vData.usedCount >= vData.usageLimit) {
-          toast.error('Voucher đã hết lượt sử dụng.', TS);
-          clearVoucher();
-          return;
+          toast.error('Voucher đã hết lượt sử dụng.', TS); clearVoucher(); return;
         }
         if (vData.minOrder > 0 && verifiedSubtotal < vData.minOrder) {
-          toast.error(`Đơn hàng tối thiểu ${vData.minOrder.toLocaleString('vi-VN')}đ.`, TS);
-          return;
+          toast.error(`Đơn hàng tối thiểu ${vData.minOrder.toLocaleString('vi-VN')}đ.`, TS); return;
         }
         verifiedVoucherDiscount = calculateDiscount(vData, verifiedAfterBulk);
       }
 
       const verifiedTotal = Math.round(Math.max(0, verifiedSubtotal - verifiedBulkDiscount - verifiedVoucherDiscount));
 
-      // ── Bước 6: Atomic Firestore Transaction ──
+      // ── Atomic Firestore Transaction ──
       await runTransaction(db, async (transaction) => {
-        // Đọc balance MỚI NHẤT từ DB trong transaction
-        const userRef = doc(db, 'users', currentUser.uid);
+        const userRef  = doc(db, 'users', currentUser.uid);
         const userSnap = await transaction.get(userRef);
         if (!userSnap.exists()) throw new Error('Tài khoản người dùng không tồn tại.');
-
         const currentBalance = userSnap.data().balance || 0;
-        if (currentBalance < verifiedTotal) {
+        if (currentBalance < verifiedTotal)
           throw new Error(`Số dư không đủ. Hiện có: ${currentBalance.toLocaleString('vi-VN')}đ, cần: ${verifiedTotal.toLocaleString('vi-VN')}đ`);
+
+        // Re-read each unique doc inside transaction
+        const txReads = await Promise.all(accountRefs.map(ref => transaction.get(ref)));
+        const txSnapByDocId = {};
+        uniqueIds.forEach((id, idx) => { txSnapByDocId[id] = txReads[idx]; });
+
+        // Final stock check (per unique doc)
+        for (const id of uniqueIds) {
+          const snap = txSnapByDocId[id];
+          const cartItem = cart.find(x => x.id === id);
+          if (!snap.exists()) throw new Error(`Tài khoản "${cartItem?.title}" không tồn tại.`);
+          const sd = snap.data();
+          const sc = sd.soldCount || 0;
+          const qt = sd.quantity  || 1;
+          const wantUnits = cart.filter(x => x.id === id).length;
+          if (sd.status !== 'available' || sc + wantUnits > qt)
+            throw new Error(`Tài khoản "${cartItem?.title}" vừa hết hàng.`);
         }
 
-        // Re-check từng account TRONG transaction (đọc lại lần cuối)
-        const accountReads = await Promise.all(accountRefs.map(ref => transaction.get(ref)));
-        for (let i = 0; i < accountReads.length; i++) {
-          const snap = accountReads[i];
-          if (!snap.exists() || snap.data().status !== 'available') {
-            throw new Error(`Tài khoản "${cart[i].title}" vừa được bán cho người khác.`);
-          }
-        }
-
-        // Tất cả hợp lệ → thực hiện
-        // Trừ balance
+        // Deduct balance
         transaction.update(userRef, { balance: currentBalance - verifiedTotal });
 
-        // Mark accounts as sold
-        accountRefs.forEach(ref => transaction.update(ref, { status: 'sold' }));
+        // Increment soldCount per doc (by number of units being bought)
+        for (const id of uniqueIds) {
+          const snap = txSnapByDocId[id];
+          const d = snap.data();
+          const unitsForThisDoc = cart.filter(x => x.id === id).length;
+          const newSoldCount = (d.soldCount || 0) + unitsForThisDoc;
+          const qty = d.quantity || 1;
+          const updates = { soldCount: newSoldCount };
+          if (newSoldCount >= qty) updates.status = 'sold';
+          transaction.update(accountRefs[uniqueIds.indexOf(id)], updates);
+        }
+
+        // ✅ [B3] Mark voucher used INSIDE main transaction — atomic
+        if (voucher) {
+          const vRef = doc(db, 'vouchers', voucher.id);
+          transaction.update(vRef, getVoucherUpdatePayload(currentUser.email));
+        }
       });
 
-      // ── Bước 7: Tạo order record ──
-      // Nếu fail: user đã bị trừ tiền (transaction đã commit) → phải retry hoặc admin hoàn tiền thủ công
-      // Đây là acceptable trade-off; nếu cần 100% atomic phải dùng backend API
-      // T5-01: Idempotency key = uid + timestamp rounded to 10s window
+      // ── Write order record ──
       const idempotencyKey = currentUser.uid + '_' + Math.floor(Date.now() / 10000);
-      try { await addDoc(collection(db, 'orders'), {
-        idempotencyKey,
-        userId: currentUser.uid,
-        userEmail: currentUser.email,
-        userName: userProfile?.displayName || currentUser.email,
-        items: verifiedItems.map(i => ({
-          id: i.id, title: i.title,
-          price: i.verifiedPrice,
-          originalPrice: i.dbPrice,
-          gameType: i.gameType,
-          images: i.images || [],
-          // ✅ Thông tin đăng nhập - giao cho người mua
-          loginUsername: i.loginUsername || '',
-          loginPassword: i.loginPassword || '',
-          loginEmail: i.loginEmail || '',
-          loginNote: i.loginNote || '',
-        })),
-        subtotal: verifiedSubtotal,
-        bulkDiscount: verifiedBulkDiscount,
-        bulkRuleId: verifiedBulkRule?.id || null,
-        voucherDiscount: verifiedVoucherDiscount,
-        discount: verifiedBulkDiscount + verifiedVoucherDiscount,
-        voucherCode: voucher?.code || null,
-        total: verifiedTotal,
-        paymentMethod: 'balance',
-        status: 'completed',
-        createdAt: serverTimestamp(),
-      }); } catch (orderErr) {
-        // Tiền đã trừ nhưng order không ghi được → notify admin
-        console.error('‼️ CRITICAL: Transaction succeeded but order record failed:', orderErr);
-        toast.error('Thanh toán thành công nhưng có lỗi ghi đơn hàng. Vui lòng liên hệ admin với thông tin: ' + new Date().toISOString(), { duration: 10000, style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--danger)' } });
-      }
-
-      // ── Bước 8: Tăng usedCount voucher ATOMIC ──
-      if (voucher) {
-        await runTransaction(db, async (transaction) => {
-          const vRef = doc(db, 'vouchers', voucher.id);
-          const vSnap = await transaction.get(vRef);
-          if (vSnap.exists()) {
-            transaction.update(vRef, { usedCount: (vSnap.data().usedCount || 0) + 1 });
-          }
+      try {
+        await addDoc(collection(db, 'orders'), {
+          idempotencyKey,
+          userId:    currentUser.uid,
+          userEmail: currentUser.email,
+          userName:  userProfile?.displayName || currentUser.email,
+          items: verifiedItems.map(i => ({
+            id:               i.id,
+            title:            i.title,
+            price:            i.verifiedPrice,
+            originalPrice:    i.dbPrice,
+            gameType:         i.gameType,
+            images:           i.images || [],
+            loginUsername:    i.loginUsername    || '',
+            loginPassword:    i.loginPassword    || '',
+            loginEmail:       i.loginEmail       || '',
+            loginNote:        i.loginNote        || '',
+            attachmentContent: i.attachmentContent || null,
+            attachmentUrl:    i.attachmentUrl    || null,   // legacy
+            attachmentName:   i.attachmentName   || null,
+          })),
+          subtotal:       verifiedSubtotal,
+          bulkDiscount:   verifiedBulkDiscount,
+          bulkRuleId:     verifiedBulkRule?.id || null,
+          voucherDiscount: verifiedVoucherDiscount,
+          discount:       verifiedBulkDiscount + verifiedVoucherDiscount,
+          voucherCode:    voucher?.code || null,
+          total:          verifiedTotal,
+          paymentMethod:  'balance',
+          status:         'completed',
+          createdAt:      serverTimestamp(),
         });
-        clearVoucher();
+      } catch (orderErr) {
+        console.error('‼️ CRITICAL: Transaction succeeded but order record failed:', orderErr);
+        toast.error('Thanh toán thành công nhưng có lỗi ghi đơn hàng. Liên hệ admin: ' + new Date().toISOString(), { duration: 10000, style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--danger)' } });
       }
 
       await fetchUserProfile(currentUser.uid);
       setCart([]);
       toast.success('🎉 Mua hàng thành công! Kiểm tra đơn hàng của bạn.', { duration: 5000, ...TS });
-      setTimeout(() => navigate('/orders'), 400); // ✅ FIX T2-04: delay để toast hiện trước khi unmount
+      setTimeout(() => navigate('/orders'), 400);
 
     } catch (err) {
       console.error('Checkout error:', err);
@@ -257,26 +288,43 @@ const CartPage = ({ cart, setCart }) => {
         ) : (
           <div className="cart-layout">
             <div className="cart-items">
-              {cart.map(item => (
-                <div key={item.id} className="cart-item card">
-                  <div className="cart-item-img">
-                    {item.images?.[0] ? <img src={item.images[0]} alt="" /> : <Package size={24} style={{ color: 'var(--text-muted)' }} />}
-                  </div>
-                  <div className="cart-item-info">
-                    <div className="cart-item-title">{item.title}</div>
-                    <span className="badge badge-accent">{item.gameType}</span>
-                  </div>
-                  <div className="cart-item-price">
-                    {item.salePrice && item.salePrice < item.price ? (
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={{ textDecoration: 'line-through', color: 'var(--text-muted)', fontSize: 12 }}>{item.price?.toLocaleString('vi-VN')}đ</div>
-                        <div style={{ color: 'var(--danger)', fontWeight: 700 }}>{item.salePrice?.toLocaleString('vi-VN')}đ</div>
+              {(() => {
+                // Count slots per account to show "Slot X/Y" label
+                const slotIndex = {};
+                const slotCount = {};
+                cart.forEach(item => { slotCount[item.id] = (slotCount[item.id] || 0) + 1; });
+                return cart.map(item => {
+                  slotIndex[item.id] = (slotIndex[item.id] || 0) + 1;
+                  const multiSlot = slotCount[item.id] > 1;
+                  return (
+                    <div key={item.cartKey || item.id} className="cart-item card">
+                      <div className="cart-item-img">
+                        {item.images?.[0] ? <img src={item.images[0]} alt="" /> : <Package size={24} style={{ color: 'var(--text-muted)' }} />}
                       </div>
-                    ) : <span>{item.price?.toLocaleString('vi-VN')}đ</span>}
-                  </div>
-                  <button className="btn btn-ghost btn-sm" onClick={() => removeItem(item.id)} style={{ color: 'var(--danger)' }}><Trash2 size={15} /></button>
-                </div>
-              ))}
+                      <div className="cart-item-info">
+                        <div className="cart-item-title">{item.title}</div>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+                          <span className="badge badge-accent">{item.gameType}</span>
+                          {multiSlot && (
+                            <span className="badge" style={{ background: 'rgba(46,213,115,0.15)', color: '#2ed573', border: '1px solid rgba(46,213,115,0.3)' }}>
+                              Nick {slotIndex[item.id]}/{slotCount[item.id]}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="cart-item-price">
+                        {item.salePrice && item.salePrice < item.price ? (
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ textDecoration: 'line-through', color: 'var(--text-muted)', fontSize: 12 }}>{item.price?.toLocaleString('vi-VN')}đ</div>
+                            <div style={{ color: 'var(--danger)', fontWeight: 700 }}>{item.salePrice?.toLocaleString('vi-VN')}đ</div>
+                          </div>
+                        ) : <span>{item.price?.toLocaleString('vi-VN')}đ</span>}
+                      </div>
+                      <button className="btn btn-ghost btn-sm" onClick={() => removeItem(item.cartKey || item.id)} style={{ color: 'var(--danger)' }}><Trash2 size={15} /></button>
+                    </div>
+                  );
+                });
+              })()}
 
               {/* Voucher */}
               <div className="voucher-box card">
@@ -315,7 +363,7 @@ const CartPage = ({ cart, setCart }) => {
                 <h2 className="summary-title">Tóm tắt đơn hàng</h2>
                 <div className="summary-lines">
                   {cart.map(item => (
-                    <div key={item.id} className="summary-line">
+                    <div key={item.cartKey || item.id} className="summary-line">
                       <span className="summary-line-name">{item.title}</span>
                       <span className="summary-line-price">{(item.salePrice || item.price)?.toLocaleString('vi-VN')}đ</span>
                     </div>

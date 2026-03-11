@@ -1,11 +1,14 @@
 // src/pages/user/ShopPage.jsx
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { collection, query, where, orderBy, getDocs } from 'firebase/firestore';
+import { collection, query, where, orderBy, getDocs, onSnapshot, limit, startAfter } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import AccountCard from '../../components/shared/AccountCard';
 import { SlidersHorizontal, Search, X, Flame } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useWishlist } from '../../hooks/useWishlist';
+import { useSEO } from '../../hooks/useSEO';
+import { useAuth } from '../../context/AuthContext';
 import './ShopPage.css';
 import { useFlashSale } from '../../hooks/useFlashSale';
 import { useGameTypes } from '../../hooks/useGameTypes';
@@ -27,6 +30,14 @@ const PRICE_RANGES = [
 const PAGE_SIZE = 12;
 
 const ShopPage = ({ onAddToCart }) => {
+  const { currentUser } = useAuth();
+  const { isWishlisted, toggle: toggleWishlist } = useWishlist(currentUser);
+  useSEO({ title: 'Shop — Mua tài khoản game giá rẻ', description: 'Hàng nghìn tài khoản game rank cao giá tốt. LMHT, Liên Quân, Valorant, FIFA...' });
+  const handleWishlist = async (id) => {
+    if (!currentUser) { import('react-hot-toast').then(({default:t})=>t.error('Đăng nhập để lưu yêu thích')); return; }
+    const added = await toggleWishlist(id);
+    import('react-hot-toast').then(({default:t})=>t.success(added?'❤️ Đã thêm vào yêu thích':'Đã bỏ yêu thích'));
+  };
   const [searchParams] = useSearchParams();
   const [accounts, setAccounts]       = useState([]);
   const [loading, setLoading]         = useState(true);
@@ -40,7 +51,7 @@ const ShopPage = ({ onAddToCart }) => {
   const [page, setPage]               = useState(1);
 
   const { gameTypeNamesWithAll: GAME_TYPES } = useGameTypes();
-  const { activeFlashSale, getSalePrice, countdown } = useFlashSale();
+  const { activeFlashSale, getSalePrice, isInFlashSale, countdown } = useFlashSale();
 
   // Debounce search
   useEffect(() => {
@@ -53,26 +64,62 @@ const ShopPage = ({ onAddToCart }) => {
 
   useEffect(() => { fetchAccounts(); }, []);
 
+  // ✅ [C2] Realtime watcher: remove accounts that become 'sold' elsewhere
+  useEffect(() => {
+    const unsub = onSnapshot(
+      query(collection(db, 'accounts'), where('status', '==', 'sold')),
+      (snap) => {
+        const soldIds = new Set(snap.docs.map(d => d.id));
+        if (soldIds.size > 0) {
+          setAccounts(prev => prev.filter(a => !soldIds.has(a.id)));
+        }
+      },
+      () => {} // ignore errors silently
+    );
+    return () => unsub();
+  }, []);
+
   // Read gameType from URL param
   useEffect(() => {
     const t = searchParams.get('type');
     if (t) setGameType(t);
   }, [searchParams]);
 
-  const fetchAccounts = async () => {
+  const PAGE_LOAD = 48;
+  const [lastDoc, setLastDoc] = useState(null);
+  const [serverHasMore, setServerHasMore] = useState(false);
+
+  const fetchAccounts = async (reset = true) => {
+    if (!reset && !serverHasMore) return;
+    if (reset) setLoading(true);
     setFetchError(null);
     try {
-      const q = query(collection(db, 'accounts'), where('status', '==', 'available'), orderBy('createdAt', 'desc'));
+      let q = query(
+        collection(db, 'accounts'),
+        where('status', '==', 'available'),
+        orderBy('createdAt', 'desc'),
+        limit(PAGE_LOAD)
+      );
+      if (!reset && lastDoc) q = query(
+        collection(db, 'accounts'),
+        where('status', '==', 'available'),
+        orderBy('createdAt', 'desc'),
+        limit(PAGE_LOAD),
+        startAfter(lastDoc)
+      );
       const snap = await getDocs(q);
-      setAccounts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const newItems = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setAccounts(prev => reset ? newItems : [...prev, ...newItems]);
+      setLastDoc(snap.docs[snap.docs.length - 1] || null);
+      setServerHasMore(snap.docs.length === PAGE_LOAD);
     } catch (err) {
       console.error(err);
       try {
-        const snap2 = await getDocs(query(collection(db, 'accounts'), where('status', '==', 'available')));
-        setAccounts(
-          snap2.docs.map(d => ({ id: d.id, ...d.data() }))
-            .sort((a, b) => (b.createdAt?.toDate?.() || 0) - (a.createdAt?.toDate?.() || 0))
-        );
+        const snap2 = await getDocs(query(collection(db, 'accounts'), where('status', '==', 'available'), limit(PAGE_LOAD)));
+        const items = snap2.docs.map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => (b.createdAt?.toDate?.() || 0) - (a.createdAt?.toDate?.() || 0));
+        setAccounts(reset ? items : prev => [...prev, ...items]);
+        setServerHasMore(snap2.docs.length === PAGE_LOAD);
       } catch {
         setFetchError('Không thể tải danh sách sản phẩm. Vui lòng thử lại.');
       }
@@ -102,7 +149,7 @@ const ShopPage = ({ onAddToCart }) => {
   const hasMore = page * PAGE_SIZE < filtered.length;
 
   const handleAddToCart = (account) => {
-    const salePrice = activeFlashSale ? getSalePrice(account.price) : null;
+    const salePrice = activeFlashSale ? getSalePrice(account.price, account.gameType) : null;
     onAddToCart?.({ ...account, salePrice: salePrice && salePrice < account.price ? salePrice : null });
     toast.success('Đã thêm vào giỏ hàng!', {
       style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' }
@@ -216,23 +263,25 @@ const ShopPage = ({ onAddToCart }) => {
               <>
                 <div className="grid grid-3" style={{ gap:20 }}>
                   {displayedAccounts.map(acc => (
-                    <AccountCard key={acc.id} account={acc} onAddToCart={handleAddToCart} />
+                    <AccountCard key={acc.id} account={acc} onAddToCart={handleAddToCart} isWishlisted={isWishlisted(acc.id)} onToggleWishlist={handleWishlist} />
                   ))}
                 </div>
 
                 {/* Load more / pagination */}
                 <div style={{ textAlign:'center', marginTop:28 }}>
-                  {hasMore && (
+                  {(hasMore || serverHasMore) && (
                     <button
                       className="btn btn-ghost"
-                      onClick={() => setPage(p => p + 1)}
+                      onClick={() => { if (hasMore) setPage(p => p + 1); else fetchAccounts(false); }}
                       style={{ padding:'10px 32px', borderRadius:24, border:'1px solid var(--border)', marginBottom:10 }}
                     >
-                      Xem thêm ({filtered.length - page * PAGE_SIZE} sản phẩm còn lại) ↓
+                      {hasMore
+                        ? `Xem thêm (${filtered.length - page * PAGE_SIZE} sản phẩm) ↓`
+                        : `Tải thêm sản phẩm ↓`}
                     </button>
                   )}
                   <div style={{ fontSize:12, color:'var(--text-muted)' }}>
-                    Hiển thị {displayedAccounts.length}/{filtered.length} sản phẩm
+                    Hiển thị {displayedAccounts.length}/{filtered.length} sản phẩm{serverHasMore ? '+' : ''}
                   </div>
                 </div>
               </>

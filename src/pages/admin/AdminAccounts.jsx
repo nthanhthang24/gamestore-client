@@ -1,12 +1,14 @@
 // src/pages/admin/AdminAccounts.jsx
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
+import { useConfirm } from '../../components/shared/ConfirmModal';
 import { collection, getDocs, deleteDoc, doc, orderBy, query } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { Plus, Edit2, Trash2, Eye, Search, Filter } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const AdminAccounts = () => {
+  const { confirm, ConfirmModal } = useConfirm();
   const [accounts, setAccounts] = useState([]);
   const [filtered, setFiltered] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -14,8 +16,13 @@ const AdminAccounts = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [selected, setSelected] = useState(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkPriceOpen, setBulkPriceOpen] = useState(false);
+  const [bulkPrice, setBulkPrice] = useState('');
+  const [bulkPriceMode, setBulkPriceMode] = useState('set'); // set | pct_up | pct_down
+  const [bulkPriceSaving, setBulkPriceSaving] = useState(false);
 
-  useEffect(() => { fetchAccounts(); }, []);
+  const location = useLocation();
+  useEffect(() => { fetchAccounts(); }, [location.key]);
   useEffect(() => {
     let result = accounts;
     if (search) result = result.filter(a => a.title?.toLowerCase().includes(search.toLowerCase()));
@@ -32,7 +39,7 @@ const AdminAccounts = () => {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Xóa tài khoản này?')) return;
+    if (!(await confirm('Xóa tài khoản này? Không thể khôi phục.'))) return;
     try {
       await deleteDoc(doc(db, 'accounts', id));
       setAccounts(prev => prev.filter(a => a.id !== id));
@@ -51,9 +58,41 @@ const AdminAccounts = () => {
     else setSelected(new Set(filtered.map(a => a.id)));
   };
 
+  const handleBulkPriceUpdate = async () => {
+    if (!bulkPrice || isNaN(Number(bulkPrice)) || Number(bulkPrice) <= 0) {
+      import('react-hot-toast').then(({default:t})=>t.error('Giá không hợp lệ')); return;
+    }
+    setBulkPriceSaving(true);
+    try {
+      const val = Number(bulkPrice);
+      const ids = [...selected];
+      await Promise.all(ids.map(id => {
+        return import('firebase/firestore').then(({doc, updateDoc, serverTimestamp}) =>
+          import('../../firebase/config').then(({db}) => {
+            const acc = accounts.find(a=>a.id===id);
+            let newPrice = val;
+            if (bulkPriceMode === 'pct_up')   newPrice = Math.round((acc?.price||0) * (1 + val/100));
+            if (bulkPriceMode === 'pct_down')  newPrice = Math.round((acc?.price||0) * (1 - val/100));
+            return updateDoc(doc(db,'accounts',id), { price: newPrice, updatedAt: serverTimestamp() });
+          })
+        );
+      }));
+      import('react-hot-toast').then(({default:t})=>t.success(`Đã cập nhật giá ${ids.length} account`));
+      setAccounts(prev => prev.map(a => {
+        if (!selected.has(a.id)) return a;
+        let np = val;
+        if (bulkPriceMode==='pct_up')   np = Math.round((a.price||0)*(1+val/100));
+        if (bulkPriceMode==='pct_down') np = Math.round((a.price||0)*(1-val/100));
+        return {...a, price: np};
+      }));
+      setSelected(new Set()); setBulkPriceOpen(false); setBulkPrice('');
+    } catch(e) { import('react-hot-toast').then(({default:t})=>t.error('Lỗi: '+e.message)); }
+    finally { setBulkPriceSaving(false); }
+  };
+
   const handleBulkDelete = async () => {
     if (selected.size === 0) return;
-    if (!window.confirm(`Xoá ${selected.size} tài khoản đã chọn?`)) return;
+    if (!(await confirm(`Xoá ${selected.size} tài khoản đã chọn? Không thể khôi phục.`))) return;
     setBulkDeleting(true);
     try {
       await Promise.all([...selected].map(id => deleteDoc(doc(db, 'accounts', id))));
@@ -65,7 +104,7 @@ const AdminAccounts = () => {
   };
 
   return (
-    <div>
+    <div><ConfirmModal/>
       <div className="admin-page-header">
         <div>
           <h1 className="admin-page-title">Quản lý Account</h1>
@@ -98,9 +137,36 @@ const AdminAccounts = () => {
             onClick={handleBulkDelete} disabled={bulkDeleting}>
             {bulkDeleting ? '⏳ Đang xoá...' : '🗑️ Xoá đã chọn'}
           </button>
+          <button className="btn btn-ghost btn-sm" style={{color:'var(--gold)'}}
+            onClick={() => setBulkPriceOpen(p=>!p)}>
+            💰 Sửa giá hàng loạt
+          </button>
           <button className="btn btn-ghost btn-sm" onClick={() => setSelected(new Set())}>Bỏ chọn</button>
         </div>
       )}
+      {/* Bulk price panel */}
+      {bulkPriceOpen && selected.size > 0 && (
+        <div className="card" style={{padding:20,marginBottom:16,border:'1px solid var(--gold)'}}>
+          <div style={{fontWeight:700,marginBottom:12,fontSize:14,color:'var(--gold)'}}>
+            💰 Sửa giá cho {selected.size} account đã chọn
+          </div>
+          <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
+            <select className="form-select" style={{width:200}} value={bulkPriceMode} onChange={e=>setBulkPriceMode(e.target.value)}>
+              <option value="set">Đặt giá cố định</option>
+              <option value="pct_up">Tăng %</option>
+              <option value="pct_down">Giảm %</option>
+            </select>
+            <input type="number" className="form-input" style={{width:160}} min="1"
+              value={bulkPrice} onChange={e=>setBulkPrice(e.target.value)}
+              placeholder={bulkPriceMode==='set'?'Giá mới (đ)':'Phần trăm (%)'}/>
+            <button className="btn btn-primary btn-sm" onClick={handleBulkPriceUpdate} disabled={bulkPriceSaving}>
+              {bulkPriceSaving?'Đang lưu...':'Cập nhật giá'}
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={()=>setBulkPriceOpen(false)}>Huỷ</button>
+          </div>
+        </div>
+      )}
+
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         {loading ? (
           <div style={{ padding: '60px', textAlign: 'center' }}><div className="spinner" style={{ margin: '0 auto' }} /></div>

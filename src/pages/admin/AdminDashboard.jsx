@@ -1,14 +1,14 @@
 // src/pages/admin/AdminDashboard.jsx
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, Outlet } from 'react-router-dom';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import { collection, getDocs, onSnapshot, query, where, orderBy } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { useAuth } from '../../context/AuthContext';
 import {
   LayoutDashboard, Package, ShoppingBag, Users, Settings,
   TrendingUp, DollarSign, Eye, Plus, ChevronRight,
-  Zap, Shield, Menu, X, LogOut, Wallet, Tag, Sword
-, Gamepad2} from 'lucide-react';
+  Zap, Shield, Menu, X, LogOut, Wallet, Tag, Sword,
+  ClipboardList, Gamepad2, Upload, Star, Download} from 'lucide-react';
 import './AdminDashboard.css';
 
 const AdminLayout = () => {
@@ -16,12 +16,24 @@ const AdminLayout = () => {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [pendingTopups, setPendingTopups] = useState(0);
+  const [pendingTickets, setPendingTickets] = useState(0);
+  const [pendingServices, setPendingServices] = useState(0);
 
   useEffect(() => {
-    // Count pending topups for badge
-    getDocs(query(collection(db, 'topups'), where('status', '==', 'pending')))
-      .then(snap => setPendingTopups(snap.size))
-      .catch(() => {});
+    // Realtime badge counts via onSnapshot
+    const unsubTopups = onSnapshot(
+      query(collection(db, 'topups'), where('status', '==', 'pending')),
+      snap => setPendingTopups(snap.size), () => {}
+    );
+    const unsubTickets = onSnapshot(
+      query(collection(db, 'tickets'), where('status', '==', 'open')),
+      snap => setPendingTickets(snap.size), () => {}
+    );
+    const unsubServices = onSnapshot(
+      query(collection(db, 'serviceOrders'), where('status', '==', 'pending')),
+      snap => setPendingServices(snap.size), () => {}
+    );
+    return () => { unsubTopups(); unsubTickets(); unsubServices(); };
   }, []);
 
   const navItems = [
@@ -30,9 +42,14 @@ const AdminLayout = () => {
     { path: '/admin/orders', icon: <ShoppingBag size={18} />, label: 'Đơn hàng' },
     { path: '/admin/topups', icon: <Wallet size={18} />, label: 'Nạp tiền', badge: pendingTopups },
     { path: '/admin/vouchers', icon: <Tag size={18} />, label: 'Voucher & Sale' },
-    { path: '/admin/services', icon: <Sword size={18} />, label: 'Dịch vụ Game' },
+    { path: '/admin/services', icon: <Sword size={18} />, label: 'Dịch vụ Game', badge: pendingServices },
     { path: '/admin/game-types', icon: <Gamepad2 size={18} />, label: 'Loại Game' },
     { path: '/admin/users', icon: <Users size={18} />, label: 'Người dùng' },
+    { path: '/admin/flash-sales', icon: <Zap size={18} />, label: 'Flash Sales' },
+    { path: '/admin/tickets', icon: <Shield size={18} />, label: 'Tickets HT', badge: pendingTickets },
+    { path: '/admin/audit-log', icon: <ClipboardList size={18} />, label: 'Audit Log' },
+    { path: '/admin/bulk-import', icon: <Upload size={18} />, label: 'Bulk Import' },
+    { path: '/admin/ratings', icon: <Star size={18} />, label: 'Đánh giá' },
     { path: '/admin/settings', icon: <Settings size={18} />, label: 'Cài đặt' },
   ];
 
@@ -129,29 +146,35 @@ export const AdminOverview = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchStats();
+    setLoading(true);
+    let ordersData = [], accountsData = [];
+    let usersCount = 0;
+
+    const unsubAccounts = onSnapshot(collection(db, 'accounts'), (snap) => {
+      accountsData = snap.docs.map(d=>({id:d.id,...d.data()}));
+      const sold = accountsData.filter(a=>a.status==='sold').length;
+      const revenue = ordersData.filter(o=>o.status==='completed').reduce((s,o)=>s+(o.total||0),0);
+      setStats({ accounts: snap.size, orders: ordersData.length, users: usersCount, revenue, sold });
+      setLoading(false);
+    }, () => setLoading(false));
+
+    const unsubOrders = onSnapshot(collection(db, 'orders'), (snap) => {
+      ordersData = snap.docs.map(d=>({id:d.id,...d.data()}));
+      const revenue = ordersData.filter(o=>o.status==='completed').reduce((s,o)=>s+(o.total||0),0);
+      const sold = accountsData.filter(a=>a.status==='sold').length;
+      setStats(s=>({ ...s, orders: snap.size, revenue, sold }));
+      setRecentOrders(ordersData.sort((a,b)=>(b.createdAt?.toDate?.()??0)-(a.createdAt?.toDate?.()??0)).slice(0,5));
+    }, () => {});
+
+    const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
+      usersCount = snap.size;
+      setStats(s=>({ ...s, users: snap.size }));
+    }, () => {});
+
+    return () => { unsubAccounts(); unsubOrders(); unsubUsers(); };
   }, []);
 
-  const fetchStats = async () => {
-    try {
-      const [accs, orders, users] = await Promise.all([
-        getDocs(collection(db, 'accounts')),
-        getDocs(collection(db, 'orders')),
-        getDocs(collection(db, 'users')),
-      ]);
-
-      const orderData = orders.docs.map(d => ({ id: d.id, ...d.data() }));
-      const revenue = orderData.filter(o => o.status === 'completed').reduce((s, o) => s + (o.total || 0), 0);
-      const sold = accs.docs.filter(d => d.data().status === 'sold').length;
-
-      setStats({
-        accounts: accs.size, orders: orders.size,
-        users: users.size, revenue, sold
-      });
-      setRecentOrders(orderData.slice(0, 5));
-    } catch (err) { console.error(err); }
-    finally { setLoading(false); }
-  };
+  const fetchStats = () => {}; // no-op: replaced by onSnapshot
 
   const statCards = [
     { title: 'Tổng Account', value: stats.accounts, icon: <Package size={22} />, color: 'var(--accent)', sub: `${stats.sold} đã bán` },

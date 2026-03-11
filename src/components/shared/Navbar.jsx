@@ -2,8 +2,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { Tag, Sword, ShoppingCart, Bell, User, LogOut, Settings, Shield,
-  Menu, X, Search, Zap, ChevronDown, Wallet
+import { Tag, Sword, ShoppingCart, Bell, User, LogOut, Settings, Shield, Sun, Moon,
+  Menu, X, Search, Zap, ChevronDown, Wallet, Heart, Gift
 } from 'lucide-react';
 import './Navbar.css';
 
@@ -15,15 +15,53 @@ const Navbar = ({ cartCount = 0 }) => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [openTickets, setOpenTickets] = useState(0);
+  const [bellOpen, setBellOpen] = useState(false);
+  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
+
+  React.useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+  const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark');
+  const [notifications, setNotifications] = useState([]);
   const dropdownRef = useRef(null);
+  const bellRef = useRef(null);
 
   const isAdmin = userProfile?.role === 'admin';
 
+  // Realtime: count open tickets for current user
+  useEffect(() => {
+    if (!currentUser) return;
+    import('firebase/firestore').then(({ collection, query, where, onSnapshot }) =>
+      import('../../firebase/config').then(({ db }) => {
+        const q = query(collection(db,'tickets'), where('userId','==',currentUser.uid), where('status','==','open'));
+        const unsub = onSnapshot(q, snap => setOpenTickets(snap.size), ()=>{});
+        return unsub;
+      })
+    ).then(unsub => unsub && (unsub._cleanup = unsub));
+  }, [currentUser?.uid]);
+
+  // Realtime: recent orders for notification
+  useEffect(() => {
+    if (!currentUser) return;
+    import('firebase/firestore').then(({ collection, query, where, orderBy, limit, onSnapshot }) =>
+      import('../../firebase/config').then(({ db }) => {
+        try {
+          const q = query(collection(db,'orders'), where('userId','==',currentUser.uid), orderBy('createdAt','desc'), limit(3));
+          const unsub = onSnapshot(q, snap => {
+            setNotifications(snap.docs.map(d => ({ id:d.id, ...d.data() })));
+          }, ()=>{});
+          return unsub;
+        } catch { return ()=>{}; }
+      })
+    );
+  }, [currentUser?.uid]);
+
   useEffect(() => {
     const handler = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
-        setDropdownOpen(false);
-      }
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) setDropdownOpen(false);
+      if (bellRef.current && !bellRef.current.contains(e.target)) setBellOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -85,6 +123,11 @@ const Navbar = ({ cartCount = 0 }) => {
 
         {/* Right actions */}
         <div className="navbar-actions">
+          {/* Theme toggle */}
+          <button className="nav-icon-btn" onClick={toggleTheme} title={theme==='dark'?'Chuyển Light':'Chuyển Dark'}>
+            {theme === 'dark' ? <Sun size={18}/> : <Moon size={18}/>}
+          </button>
+
           {/* Search */}
           <button className="nav-icon-btn" onClick={() => setSearchOpen(!searchOpen)}>
             <Search size={18} />
@@ -97,6 +140,41 @@ const Navbar = ({ cartCount = 0 }) => {
                 <ShoppingCart size={18} />
                 {cartCount > 0 && <span className="cart-badge">{cartCount}</span>}
               </Link>
+
+              {/* Notification Bell */}
+              <div className="user-dropdown" ref={bellRef} style={{position:'relative'}}>
+                <button className="nav-icon-btn" onClick={()=>setBellOpen(p=>!p)} style={{position:'relative'}}>
+                  <Bell size={18} />
+                  {openTickets > 0 && <span className="cart-badge" style={{background:'var(--gold)'}}>{openTickets}</span>}
+                </button>
+                {bellOpen && (
+                  <div className="dropdown-menu" style={{minWidth:300,right:0,left:'auto'}}>
+                    <div className="dropdown-header">
+                      <span className="dropdown-name">🔔 Thông báo</span>
+                    </div>
+                    <div className="dropdown-divider"/>
+                    {openTickets > 0 && (
+                      <Link to="/orders" className="dropdown-item" onClick={()=>setBellOpen(false)}
+                        style={{color:'var(--gold)'}}>
+                        <Shield size={15}/> {openTickets} ticket đang chờ xử lý
+                      </Link>
+                    )}
+                    {notifications.slice(0,3).map(n=>(
+                      <Link key={n.id} to={`/orders/${n.id}`} className="dropdown-item"
+                        onClick={()=>setBellOpen(false)} style={{fontSize:12}}>
+                        <ShoppingCart size={13}/> Đơn #{n.id.slice(-6).toUpperCase()} · {n.total?.toLocaleString('vi-VN')}đ
+                      </Link>
+                    ))}
+                    {notifications.length===0 && openTickets===0 && (
+                      <div style={{padding:'14px 16px',fontSize:13,color:'var(--text-muted)',textAlign:'center'}}>Không có thông báo</div>
+                    )}
+                    <div className="dropdown-divider"/>
+                    <Link to="/orders" className="dropdown-item" onClick={()=>setBellOpen(false)} style={{fontSize:12,textAlign:'center',justifyContent:'center'}}>
+                      Xem tất cả đơn hàng
+                    </Link>
+                  </div>
+                )}
+              </div>
 
               {/* Balance */}
               <div className="nav-balance">
@@ -129,8 +207,14 @@ const Navbar = ({ cartCount = 0 }) => {
                     <Link to="/orders" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
                       <ShoppingCart size={15} /> Đơn hàng
                     </Link>
+                    <Link to="/wishlist" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
+                      <Heart size={15} style={{color:'#ff4757'}}/> Yêu thích
+                    </Link>
                     <Link to="/vouchers" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
                       <Tag size={15} /> Voucher của tôi
+                    </Link>
+                    <Link to="/referral" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
+                      <Gift size={15} style={{color:'var(--gold)'}}/> Giới thiệu bạn bè
                     </Link>
                     <Link to="/services" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
                       <Sword size={15} /> Dịch vụ game
@@ -201,6 +285,8 @@ const Navbar = ({ cartCount = 0 }) => {
             <div style={{ borderTop: '1px solid var(--border)', paddingTop: 8, marginTop: 8 }}>
               <Link to="/profile" className="mobile-link" onClick={() => setMenuOpen(false)}>👤 Hồ sơ</Link>
               <Link to="/orders" className="mobile-link" onClick={() => setMenuOpen(false)}>📦 Đơn hàng</Link>
+              <Link to="/wishlist" className="mobile-link" onClick={() => setMenuOpen(false)}>❤️ Yêu thích</Link>
+              <Link to="/referral" className="mobile-link" onClick={() => setMenuOpen(false)}>🎁 Giới thiệu bạn bè</Link>
               <Link to="/vouchers" className="mobile-link" onClick={() => setMenuOpen(false)}>🎫 Voucher</Link>
               <button className="mobile-link danger" style={{ width:'100%', textAlign:'left', background:'none', border:'none', cursor:'pointer', color:'var(--danger)' }} onClick={handleLogout}>🚪 Đăng xuất</button>
             </div>

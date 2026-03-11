@@ -1,7 +1,7 @@
 // src/pages/user/HomePage.jsx
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit, getDocs, onSnapshot } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import AccountCard from '../../components/shared/AccountCard';
 import {
@@ -37,27 +37,26 @@ const HomePage = ({ onAddToCart }) => {
   const { activeFlashSale, getSalePrice, countdown } = useFlashSale();
 
   useEffect(() => {
-    fetchAccounts();
-  }, []);
-
-  const fetchAccounts = async () => {
-    try {
-      const q = query(
-        collection(db, 'accounts'),
-        where('status', '==', 'available'),
-        orderBy('createdAt', 'desc'),
-        limit(8)
-      );
-      const snap = await getDocs(q);
+    setLoading(true);
+    const q = query(
+      collection(db, 'accounts'),
+      where('status', '==', 'available'),
+      orderBy('createdAt', 'desc'),
+      limit(8)
+    );
+    const unsub = onSnapshot(q, (snap) => {
       const accounts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setFeaturedAccounts(accounts.filter(a => a.featured).slice(0, 4));
       setNewAccounts(accounts.slice(0, 8));
-    } catch (err) {
-      console.error(err);
-    } finally {
       setLoading(false);
-    }
-  };
+    }, (err) => {
+      console.error(err);
+      setLoading(false);
+    });
+    return () => unsub();
+  }, []);
+
+  const fetchAccounts = () => {}; // no-op: replaced by onSnapshot
 
   const handleAddToCart = (account) => {
     const salePrice = activeFlashSale ? getSalePrice(account.price) : null;
@@ -234,7 +233,7 @@ const HomePage = ({ onAddToCart }) => {
                 </div>
               ) : (
                 <div style={{ textAlign:'center', padding:'40px', color:'var(--text-muted)' }}>
-                  Chưa có tài khoản <strong>{activeType}</strong> nào. <a href="/shop" style={{ color:'var(--accent)' }}>Xem tất cả →</a>
+                  Chưa có tài khoản <strong>{activeType}</strong> nào. <Link to="/shop" style={{ color:'var(--accent)' }}>Xem tất cả →</Link>
                 </div>
               );
             })()

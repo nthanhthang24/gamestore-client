@@ -72,7 +72,11 @@ export const AuthProvider = ({ children }) => {
   const fetchUserProfile = async (uid) => {
     try {
       const snap = await getDoc(doc(db, 'users', uid));
-      if (snap.exists()) setUserProfile({ ...snap.data(), balance: snap.data().balance || 0 });
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.banned) { await signOut(auth); return; } // kick banned users
+        setUserProfile({ ...data, balance: data.balance || 0 });
+      }
       else setUserProfile({ uid, balance: 0, role: 'user' });
     } catch (e) {
       console.warn('fetchUserProfile error:', e.message);
