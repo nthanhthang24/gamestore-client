@@ -208,6 +208,12 @@ const AdminAccounts = () => {
                     </td>
                     <td style={{ color: 'var(--text-primary)', fontWeight: 500, maxWidth: '200px' }}>
                       <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{acc.title}</div>
+                      {/* Cảnh báo thiếu credentials */}
+                      {acc.status === 'available' && !acc.loginUsername && !(acc.credentials?.length > 0 && acc.credentials[0]?.loginUsername) && !acc.attachmentContent && (
+                        <div style={{ fontSize: 10, color: 'var(--danger)', fontWeight: 700, marginTop: 2 }}>
+                          ⚠️ Thiếu thông tin đăng nhập
+                        </div>
+                      )}
                     </td>
                     <td><span className="badge badge-accent">{acc.gameType}</span></td>
                     <td>{acc.rank || '-'}</td>

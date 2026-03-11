@@ -199,7 +199,14 @@ const OrderDetailPage = () => {
               )}
 
               {!item.loginUsername && !item.attachmentContent && !item.attachmentUrl && (
-                <div style={{fontSize:12,color:'var(--text-muted)',fontStyle:'italic'}}>Thông tin sẽ được admin liên hệ qua email.</div>
+                <div style={{background:'rgba(255,71,87,0.08)',border:'1px solid rgba(255,71,87,0.3)',borderRadius:8,padding:'12px 16px'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:8,color:'var(--danger)',fontWeight:700,fontSize:13,marginBottom:6}}>
+                    <AlertTriangle size={14}/> Thiếu thông tin đăng nhập
+                  </div>
+                  <div style={{fontSize:12,color:'var(--text-secondary)',lineHeight:1.6}}>
+                    Tài khoản này chưa có thông tin đăng nhập được lưu. Vui lòng liên hệ admin ngay để được hỗ trợ — bấm <strong>"Liên hệ hỗ trợ"</strong> bên dưới.
+                  </div>
+                </div>
               )}
             </div>
           ))}

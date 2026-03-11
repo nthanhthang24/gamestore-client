@@ -98,48 +98,17 @@ const CartPage = ({ cart, setCart }) => {
         }
       }
 
-      // ── Build verifiedItems with correct per-slot credentials ──
+      // ── Compute verifiedSubtotal from pre-tx snaps (prices only, no credential assignment yet) ──
       let verifiedSubtotal = 0;
-      const unitOffsetByDoc = {}; // tracks how many slots we've assigned per doc so far
-      uniqueIds.forEach(id => { unitOffsetByDoc[id] = 0; });
-
-      const verifiedItems = cart.map((cartItem) => {
-        const snap   = snapByDocId[cartItem.id];
-        const dbData = snap.data();
+      const verifiedPriceByCartKey = {};
+      cart.forEach((cartItem) => {
+        const dbData = snapByDocId[cartItem.id].data();
         const dbPrice = dbData.price;
         const clientSalePrice = cartItem.salePrice;
         const finalPrice = (clientSalePrice && clientSalePrice > 0 && clientSalePrice <= dbPrice)
           ? clientSalePrice : dbPrice;
         verifiedSubtotal += finalPrice;
-
-        // Pick correct credential slot
-        const baseSoldCount = dbData.soldCount || 0;
-        const offset = unitOffsetByDoc[cartItem.id];
-        const slotIndex = baseSoldCount + offset;
-        unitOffsetByDoc[cartItem.id]++;
-        const creds = dbData.credentials;
-        const slot = (creds && creds.length > slotIndex) ? creds[slotIndex] : {
-          loginUsername:    dbData.loginUsername    || '',
-          loginPassword:    dbData.loginPassword    || '',
-          loginEmail:       dbData.loginEmail       || '',
-          loginNote:        dbData.loginNote        || '',
-          attachmentContent: dbData.attachmentContent || null,
-          attachmentUrl:    dbData.attachmentUrl    || null,   // legacy compat
-          attachmentName:   dbData.attachmentName   || null,
-        };
-        return {
-          ...cartItem,
-          verifiedPrice:    finalPrice,
-          dbPrice,
-          loginUsername:    slot.loginUsername    || '',
-          loginPassword:    slot.loginPassword    || '',
-          loginEmail:       slot.loginEmail       || '',
-          loginNote:        slot.loginNote        || '',
-          attachmentContent: slot.attachmentContent || null,
-          attachmentUrl:    slot.attachmentUrl    || null,   // legacy compat
-          attachmentName:   slot.attachmentName   || null,
-          _slotIndex:       slotIndex,
-        };
+        verifiedPriceByCartKey[cartItem.cartKey || cartItem.id] = { finalPrice, dbPrice };
       });
 
       // ── Re-compute discounts from verified prices ──
@@ -168,6 +137,11 @@ const CartPage = ({ cart, setCart }) => {
 
       const verifiedTotal = Math.round(Math.max(0, verifiedSubtotal - verifiedBulkDiscount - verifiedVoucherDiscount));
 
+      // ── Closure: capture tx-verified soldCount to fix credential-slot race condition ──
+      // Without this, two simultaneous buyers could read the same pre-tx soldCount
+      // and both receive the same credential slot.
+      const txVerifiedSoldCount = {}; // { [accountId]: soldCount at moment of tx lock }
+
       // ── Atomic Firestore Transaction ──
       await runTransaction(db, async (transaction) => {
         const userRef  = doc(db, 'users', currentUser.uid);
@@ -182,7 +156,7 @@ const CartPage = ({ cart, setCart }) => {
         const txSnapByDocId = {};
         uniqueIds.forEach((id, idx) => { txSnapByDocId[id] = txReads[idx]; });
 
-        // Final stock check (per unique doc)
+        // Final stock check + capture verified soldCount via closure
         for (const id of uniqueIds) {
           const snap = txSnapByDocId[id];
           const cartItem = cart.find(x => x.id === id);
@@ -193,6 +167,8 @@ const CartPage = ({ cart, setCart }) => {
           const wantUnits = cart.filter(x => x.id === id).length;
           if (sd.status !== 'available' || sc + wantUnits > qt)
             throw new Error(`Tài khoản "${cartItem?.title}" vừa hết hàng.`);
+          // ✅ Capture atomically-locked soldCount for credential assignment below
+          txVerifiedSoldCount[id] = sc;
         }
 
         // Deduct balance
@@ -215,6 +191,45 @@ const CartPage = ({ cart, setCart }) => {
           const vRef = doc(db, 'vouchers', voucher.id);
           transaction.update(vRef, getVoucherUpdatePayload(currentUser.email));
         }
+      });
+
+      // ── Build verifiedItems AFTER transaction using tx-verified soldCount ──
+      // This guarantees credential slot assignment matches the atomically-committed soldCount,
+      // eliminating the race condition where concurrent buyers get the same slot.
+      const unitOffsetByDoc = {};
+      uniqueIds.forEach(id => { unitOffsetByDoc[id] = 0; });
+      const verifiedItems = cart.map((cartItem) => {
+        const dbData = snapByDocId[cartItem.id].data();
+        const { finalPrice, dbPrice } = verifiedPriceByCartKey[cartItem.cartKey || cartItem.id];
+
+        // Use tx-verified soldCount (not stale pre-tx value)
+        const baseSoldCount = txVerifiedSoldCount[cartItem.id] ?? (dbData.soldCount || 0);
+        const offset = unitOffsetByDoc[cartItem.id];
+        const slotIndex = baseSoldCount + offset;
+        unitOffsetByDoc[cartItem.id]++;
+        const creds = dbData.credentials;
+        const slot = (creds && creds.length > slotIndex) ? creds[slotIndex] : {
+          loginUsername:    dbData.loginUsername    || '',
+          loginPassword:    dbData.loginPassword    || '',
+          loginEmail:       dbData.loginEmail       || '',
+          loginNote:        dbData.loginNote        || '',
+          attachmentContent: dbData.attachmentContent || null,
+          attachmentUrl:    dbData.attachmentUrl    || null,
+          attachmentName:   dbData.attachmentName   || null,
+        };
+        return {
+          ...cartItem,
+          verifiedPrice:    finalPrice,
+          dbPrice,
+          loginUsername:    slot.loginUsername    || '',
+          loginPassword:    slot.loginPassword    || '',
+          loginEmail:       slot.loginEmail       || '',
+          loginNote:        slot.loginNote        || '',
+          attachmentContent: slot.attachmentContent || null,
+          attachmentUrl:    slot.attachmentUrl    || null,
+          attachmentName:   slot.attachmentName   || null,
+          _slotIndex:       slotIndex,
+        };
       });
 
       // ── Write order record ──

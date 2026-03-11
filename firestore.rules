@@ -45,6 +45,11 @@ service cloud.firestore {
         || (isOwner(userId) &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance']) &&
             request.resource.data.balance > resource.data.balance)
+        // ✅ Checkout: user thanh toán bằng số dư — chỉ giảm balance (trong transaction)
+        || (isOwner(userId) &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance']) &&
+            request.resource.data.balance < resource.data.balance &&
+            request.resource.data.balance >= 0)
         // ✅ Server (webhook) cộng balance - chỉ được update balance + updatedAt
         || (!isAuthenticated() &&
             request.resource.data.diff(resource.data).affectedKeys()
@@ -67,7 +72,7 @@ service cloud.firestore {
     // ── Topups ────────────────────────────────────────────────────────
     match /topups/{topupId} {
       // User đọc của mình, admin đọc tất, server đọc để xử lý webhook
-      allow read: if true;
+      allow read: if isOwner(resource.data.userId) || isAdmin() || !isAuthenticated();
       // ✅ Server tạo topup (không có auth)
       allow create: if request.resource.data.status == 'pending'
         && request.resource.data.amount > 0

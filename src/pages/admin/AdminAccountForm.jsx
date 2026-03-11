@@ -6,7 +6,7 @@ import { db } from '../../firebase/config';
 import { useGameTypes } from '../../hooks/useGameTypes';
 import {
   Plus, X, ImagePlus, Save, ArrowLeft, Eye, EyeOff,
-  FileText, Trash2, CheckCircle, Copy, ChevronDown, ChevronUp
+  FileText, Trash2, CheckCircle, Copy, ChevronDown, ChevronUp, ClipboardList, AlertCircle
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import './AdminAccountForm.css';
@@ -232,6 +232,45 @@ const AdminAccountForm = () => {
     setForm(p => ({ ...p, quantity: p.quantity + 1 }));
   };
 
+  // ── Bulk paste: mỗi dòng = 1 slot ─────────────────────────────
+  // Format hỗ trợ: username|password|email|note  hoặc  username|password  hoặc  tab-separated
+  const [showBulk, setShowBulk] = useState(false);
+  const [bulkText, setBulkText] = useState('');
+  const [bulkPreview, setBulkPreview] = useState([]);
+
+  const parseBulkLine = (line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return null;
+    // Support | or tab as separator
+    const parts = trimmed.includes('\t') ? trimmed.split('\t') : trimmed.split('|');
+    return {
+      loginUsername: (parts[0] || '').trim(),
+      loginPassword: (parts[1] || '').trim(),
+      loginEmail:    (parts[2] || '').trim(),
+      loginNote:     (parts[3] || '').trim(),
+      attachmentContent: null, attachmentName: null, pendingFile: null,
+      _showPass: false, _expanded: false,
+    };
+  };
+
+  const handleBulkChange = (text) => {
+    setBulkText(text);
+    const lines = text.split('\n').map(parseBulkLine).filter(Boolean);
+    setBulkPreview(lines);
+  };
+
+  const applyBulk = () => {
+    if (!bulkPreview.length) { toast.error('Không có dòng hợp lệ nào'); return; }
+    const invalid = bulkPreview.filter(s => !s.loginUsername);
+    if (invalid.length) { toast.error(`${invalid.length} dòng thiếu username`); return; }
+    setCredentials(bulkPreview);
+    setForm(p => ({ ...p, quantity: bulkPreview.length }));
+    setBulkText('');
+    setBulkPreview([]);
+    setShowBulk(false);
+    toast.success('✅ Đã import ' + bulkPreview.length + ' slot!');
+  };
+
   const addStat    = () => setStats(p => [...p, { key:'', value:'' }]);
   const removeStat = (i) => setStats(p => p.filter((_, idx) => idx !== i));
   const statChange = (i, f, v) => { const s=[...stats]; s[i][f]=v; setStats(s); };
@@ -436,11 +475,68 @@ const AdminAccountForm = () => {
               </h2>
               <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                 <span style={{ fontSize:12, color:'var(--text-muted)' }}>{credentials.length} slot</span>
+                <button type="button" className="btn btn-ghost btn-sm"
+                  style={{ color: showBulk ? 'var(--accent)' : undefined, borderColor: showBulk ? 'var(--accent)' : undefined }}
+                  onClick={() => setShowBulk(p => !p)}>
+                  <ClipboardList size={13}/> Nhập hàng loạt
+                </button>
                 <button type="button" className="btn btn-ghost btn-sm" onClick={addSlot}>
                   <Plus size={13}/> Thêm slot
                 </button>
               </div>
             </div>
+
+            {/* ── Bulk paste panel ── */}
+            {showBulk && (
+              <div style={{ marginBottom:16, padding:16, borderRadius:10, background:'rgba(0,212,255,0.04)', border:'1px solid rgba(0,212,255,0.25)' }}>
+                <div style={{ fontSize:13, fontWeight:700, color:'var(--accent)', marginBottom:8 }}>
+                  📋 Nhập hàng loạt — mỗi dòng 1 tài khoản
+                </div>
+                <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:10, lineHeight:1.7 }}>
+                  Định dạng: <code style={{ background:'rgba(0,0,0,0.3)', padding:'1px 6px', borderRadius:4, color:'var(--accent)' }}>username|password|email|ghi_chú</code><br/>
+                  Email và ghi chú có thể bỏ trống. Ví dụ:<br/>
+                  <code style={{ background:'rgba(0,0,0,0.3)', padding:'2px 8px', borderRadius:4, display:'inline-block', marginTop:4, color:'#2ed573' }}>
+                    player123|pass456|email@gmail.com<br/>
+                    player456|pass789
+                  </code>
+                </div>
+                <textarea
+                  className="form-textarea"
+                  rows={8}
+                  placeholder={"player001|password1|email1@gmail.com\nplayer002|password2\nplayer003|password3|email3@gmail.com|OTP: 123456"}
+                  value={bulkText}
+                  onChange={e => handleBulkChange(e.target.value)}
+                  style={{ fontFamily:'Share Tech Mono, monospace', fontSize:12, width:'100%', resize:'vertical' }}
+                />
+                {bulkPreview.length > 0 && (
+                  <div style={{ marginTop:10, padding:'8px 12px', borderRadius:8, background:'rgba(46,213,115,0.08)', border:'1px solid rgba(46,213,115,0.25)', fontSize:12 }}>
+                    <div style={{ color:'var(--success)', fontWeight:700, marginBottom:4 }}>
+                      ✅ Preview: {bulkPreview.length} slot hợp lệ
+                    </div>
+                    <div style={{ color:'var(--text-muted)', maxHeight:80, overflow:'auto' }}>
+                      {bulkPreview.slice(0,5).map((s,i) => (
+                        <div key={i}>Slot {i+1}: <strong>{s.loginUsername}</strong> / {s.loginPassword ? '••••••' : '⚠️ thiếu pass'} {s.loginEmail ? `/ ${s.loginEmail}` : ''}</div>
+                      ))}
+                      {bulkPreview.length > 5 && <div style={{ color:'var(--text-muted)' }}>... và {bulkPreview.length - 5} slot nữa</div>}
+                    </div>
+                  </div>
+                )}
+                {bulkText && bulkPreview.length === 0 && (
+                  <div style={{ marginTop:8, color:'var(--danger)', fontSize:12, display:'flex', alignItems:'center', gap:6 }}>
+                    <AlertCircle size={13}/> Không parse được dòng nào. Kiểm tra lại định dạng.
+                  </div>
+                )}
+                <div style={{ display:'flex', gap:8, marginTop:12 }}>
+                  <button type="button" className="btn btn-primary btn-sm" onClick={applyBulk} disabled={!bulkPreview.length}>
+                    <ClipboardList size={13}/> Áp dụng {bulkPreview.length > 0 ? `(${bulkPreview.length} slot)` : ''}
+                  </button>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setShowBulk(false); setBulkText(''); setBulkPreview([]); }}>
+                    Huỷ
+                  </button>
+                </div>
+              </div>
+            )}
+
             <p style={{ fontSize:12, color:'var(--danger)', marginBottom:16, background:'rgba(255,71,87,0.08)', padding:'8px 12px', borderRadius:8 }}>
               ⚠️ Mỗi slot = 1 tài khoản thực. Buyer nhận theo thứ tự từ Slot 1. Điền chính xác!
             </p>
