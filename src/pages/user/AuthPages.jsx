@@ -6,7 +6,7 @@ import { Eye, EyeOff, Zap, Mail, Lock, User, AlertCircle } from 'lucide-react';
 import { sendPasswordResetEmail } from 'firebase/auth';
 import {
   collection, query, where, getDocs, addDoc, updateDoc,
-  doc, serverTimestamp, increment
+  doc, serverTimestamp
 } from 'firebase/firestore';
 import { auth, db } from '../../firebase/config';
 import toast from 'react-hot-toast';
@@ -231,27 +231,16 @@ export const RegisterPage = () => {
         }
 
         // Ghi referral record (credited=false, chờ lần nạp tiền đầu)
+        // FIX 2025-I: Bonus 10k KHÔNG cộng từ client — Firestore rules chặn user
+        // tự tăng balance. Server webhook (sepay.js) tự động cộng khi bạn bè nạp tiền.
         addDoc(collection(db, 'referrals'), {
           refCode,
-          referrerId,          // uid của người giới thiệu (null nếu không tìm được)
+          referrerId,
           newUserEmail: form.email,
           newUserId:    uid,
           credited:     false,
           createdAt:    serverTimestamp(),
         }).catch(() => {});
-
-        // Cộng 10k — retry với delay để tránh race với setDoc trong AuthContext
-        const applyBonus = async (retries = 3) => {
-          for (let i = 0; i < retries; i++) {
-            try {
-              await updateDoc(doc(db, 'users', uid), { balance: increment(NEW_USER_BONUS) });
-              return; // success
-            } catch (e) {
-              if (i < retries - 1) await new Promise(r => setTimeout(r, 500 * (i + 1)));
-            }
-          }
-        };
-        applyBonus(); // fire-and-forget with internal retry
       }
       // ─────────────────────────────────────────────────────────
 

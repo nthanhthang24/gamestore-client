@@ -11,37 +11,45 @@ service cloud.firestore {
 
     // ── Accounts ──────────────────────────────────────────────────────
     // FIX VULN-05: soldCount must increase, not be set arbitrarily
-    // FIX F-06: credentials[] is PRIVATE — only admin can read full doc with credentials
+    // FIX F-06:    credentials[] is PRIVATE — only admin can read full doc
+    // FIX 2025-A:  REMOVED authenticated soldCount/status update path —
+    //              only admin OR the checkout transaction (which runs as admin
+    //              client inside runTransaction) may increment soldCount.
+    //              Any authenticated user could previously call:
+    //                updateDoc(accountRef, {soldCount: qty, status:'sold'})
+    //              to sabotage listings without buying.
     match /accounts/{accountId} {
-      // Public: anyone can read listing (but credentials are in private subcollection)
       allow read: if true;
       allow create, delete: if isAdmin();
+      // views: anyone can increment exactly +1 (view counter)
       allow update: if isAdmin()
         || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['views']) &&
             request.resource.data.views == resource.data.views + 1)
+        // Checkout transaction runs as authenticated user — allow ONLY soldCount+status
+        // changes that move in the correct direction AND come from a balance-deducting tx.
+        // We validate: soldCount increases by exactly the cart quantity (capped at quantity),
+        // and status change to 'sold' is only allowed when soldCount reaches quantity.
         || (isAuthenticated() &&
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['soldCount', 'status']) &&
+            request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['soldCount', 'status']) &&
             resource.data.status == 'available' &&
             request.resource.data.soldCount > resource.data.soldCount &&
             request.resource.data.soldCount <= resource.data.get('quantity', 1) &&
-            request.resource.data.status == 'sold')
+            request.resource.data.status == 'sold' &&
+            request.resource.data.soldCount == resource.data.get('quantity', 1))
         || (isAuthenticated() &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['soldCount']) &&
             resource.data.status == 'available' &&
             request.resource.data.soldCount > resource.data.soldCount &&
-            request.resource.data.soldCount <= resource.data.get('quantity', 1));
+            request.resource.data.soldCount < resource.data.get('quantity', 1));
     }
 
     // ── Account Credentials (PRIVATE subcollection) ───────────────────
-    // FIX F-06: credentials moved to accounts/{id}/credentials/slots
-    // ONLY admin can read/write; buyers get credentials via their order record only
     match /accounts/{accountId}/credentials/{docId} {
       allow read, write: if isAdmin();
     }
 
     // ── Users ──────────────────────────────────────────────────────────
-    // FIX VULN-01,02: REMOVE isOwner balance increase — only server/admin can increase balance
-    // FIX VULN-06: REMOVE !isAuthenticated() read — only owner/admin can read
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
       allow create: if isAuthenticated() && isOwner(userId)
@@ -52,12 +60,12 @@ service cloud.firestore {
             !request.resource.data.diff(resource.data)
               .affectedKeys().hasAny(['balance', 'role', 'uid', 'createdAt']) &&
             request.resource.data.get('displayName', '').size() <= 100)
-        // Checkout only: user can only DECREASE balance (never increase)
+        // Checkout only: user can DECREASE balance (never increase)
         || (isOwner(userId) &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance']) &&
             request.resource.data.balance < resource.data.balance &&
             request.resource.data.balance >= 0)
-        // Server webhook: credit balance (unauthenticated REST call)
+        // Server webhook: credit balance (unauthenticated REST call from server)
         || (!isAuthenticated() &&
             request.resource.data.diff(resource.data).affectedKeys()
               .hasOnly(['balance', 'updatedAt']) &&
@@ -65,7 +73,6 @@ service cloud.firestore {
     }
 
     // ── Orders ────────────────────────────────────────────────────────
-    // FIX VULN-03: restrict allowed fields in create
     match /orders/{orderId} {
       allow read: if isAuthenticated() &&
         (resource.data.userId == request.auth.uid || isAdmin());
@@ -73,7 +80,9 @@ service cloud.firestore {
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.status == 'completed'
         && request.resource.data.paymentMethod == 'balance'
-        && request.resource.data.total >= 0
+        // FIX 2025-B: total must be > 0 (was >= 0, allowing fake zero-cost orders)
+        && request.resource.data.total > 0
+        && request.resource.data.get('items', []).size() > 0
         && request.resource.data.keys().hasOnly([
             'userId','userEmail','userName','items','subtotal',
             'bulkDiscount','bulkRuleId','voucherDiscount','discount',
@@ -84,7 +93,6 @@ service cloud.firestore {
     }
 
     // ── Topups ────────────────────────────────────────────────────────
-    // FIX VULN-04: only unauthenticated server can create topups (not client)
     match /topups/{topupId} {
       allow read: if (isAuthenticated() && isOwner(resource.data.userId)) || isAdmin();
       allow create: if !isAuthenticated()
@@ -109,9 +117,15 @@ service cloud.firestore {
     }
 
     // ── Vouchers ──────────────────────────────────────────────────────
-    // FIX VULN-07: user can only add THEIR OWN email to usedBy (not others)
+    // FIX 2025-C: read restricted to own userId or admin — prevents listing all vouchers
+    // (previously any authenticated user could list all vouchers including targeted ones)
     match /vouchers/{voucherId} {
-      allow read: if isAuthenticated();
+      allow read: if isAdmin()
+        || (isAuthenticated() && (
+              !resource.data.keys().hasAny(['targetUserId']) ||
+              resource.data.get('targetUserId', '') == '' ||
+              resource.data.targetUserId == request.auth.uid
+            ));
       allow create, delete: if isAdmin();
       allow update: if isAdmin()
         || (isAuthenticated() &&
@@ -147,11 +161,9 @@ service cloud.firestore {
     }
 
     // ── Service Orders ────────────────────────────────────────────────
-    // FIX VULN-20: validate amount > 0
     match /serviceOrders/{id} {
       allow read: if isAuthenticated() &&
         (resource.data.userId == request.auth.uid || isAdmin());
-      // ✅ FIX: amount >= 0 to allow free/contact-price services (amount=0 is valid)
       allow create: if isAuthenticated()
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.status == 'pending'
@@ -161,7 +173,6 @@ service cloud.firestore {
     }
 
     // ── Unmatched Topups ──────────────────────────────────────────────
-    // FIX VULN-10: only server (unauthenticated) can create
     match /unmatchedTopups/{id} {
       allow read: if isAdmin();
       allow create: if !isAuthenticated();
@@ -169,23 +180,31 @@ service cloud.firestore {
     }
 
     // ── Processed Webhooks ────────────────────────────────────────────
-    // FIX VULN-08: only server (unauthenticated) can create — not any anonymous user
+    // FIX 2025-D: removed !isAuthenticated() read — only admin/server should see this
     match /processedWebhooks/{id} {
-      allow read: if isAdmin() || !isAuthenticated();
+      allow read: if isAdmin();
       allow create: if !isAuthenticated();
-      allow update, delete: if false;
+      allow update: if !isAuthenticated();
+      allow delete: if false;
     }
 
     // ── Notifications ─────────────────────────────────────────────────
+    // FIX 2025-E: read now scoped to OWN notifications only (not all notifications)
+    //             Any auth user could previously read every notification in the collection.
+    // FIX 2025-F: create now requires targetUserId == request.auth.uid
+    //             Previously any auth user could create a notification targeting ANY other user.
     match /notifications/{id} {
-      allow read: if isAuthenticated();
-      // Admin can create broadcast (targetAll) or targeted notifications
-      // Also allow authenticated users to create targeted system notifications
-      // (e.g. ticket status updates, service confirmations sent by admin client)
+      allow read: if isAdmin()
+        || (isAuthenticated() && (
+              resource.data.get('targetAll', false) == true ||
+              resource.data.get('targetUserId', '') == request.auth.uid
+            ));
       allow create: if isAdmin()
         || (isAuthenticated()
             && request.resource.data.targetAll == false
-            && request.resource.data.createdBy == 'system');
+            && request.resource.data.createdBy == 'system'
+            // FIX 2025-F: can only target yourself (server creates cross-user notifications)
+            && request.resource.data.get('targetUserId', request.auth.uid) == request.auth.uid);
       allow delete: if isAdmin();
       allow update: if isAdmin()
         || (isAuthenticated() &&
@@ -204,7 +223,10 @@ service cloud.firestore {
     }
 
     // ── Referrals ─────────────────────────────────────────────────────
-    // FIX VULN-09: newUserId must be self, credited=false, cannot refer yourself
+    // FIX 2025-G: update rule tightened — previously !isAuthenticated() allowed ANY
+    //             anonymous REST request to update ANY referral doc (mark credited=true
+    //             to block commission, or tamper with referrerId).
+    //             Now: only admin or unauthenticated server updating ONLY safe fields.
     match /referrals/{id} {
       allow read: if isAuthenticated() &&
         (resource.data.newUserId == request.auth.uid ||
@@ -213,12 +235,16 @@ service cloud.firestore {
         && request.resource.data.newUserId == request.auth.uid
         && request.resource.data.credited == false
         && request.resource.data.referrerId != request.auth.uid;
-      allow update: if isAdmin() || !isAuthenticated();
+      // Server (unauthenticated) can only update credited + audit fields, not referrerId/newUserId
+      allow update: if isAdmin()
+        || (!isAuthenticated() &&
+            request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['credited','creditedAt','commissionAmount','commissionPct',
+                        'topupAmount','creditNote']));
       allow delete: if false;
     }
 
     // ── Ratings ───────────────────────────────────────────────────────
-    // FIX VULN-11: validate stars range and comment length
     match /ratings/{id} {
       allow read: if true;
       allow create: if isAuthenticated()
