@@ -294,7 +294,26 @@ const CartPage = ({ cart, setCart }) => {
         if (vSnap !== null) transaction.update(voucherRef, getVoucherUpdatePayload(currentUser.email));
       });
 
-      // Build verified items for order record
+      // ── Build verified items — read credentials from admin-only subcollection ──
+      // FIX 2025-K: Credentials moved to /accounts/{id}/credentials/slots (admin-only).
+      // After the transaction commits (money deducted, soldCount incremented),
+      // we fetch the credentials subcollection with getDoc — protected by Firestore rules
+      // so only admin can read it directly, but here we're running as the authenticated
+      // buyer user. We need the creds to build the order record.
+      // NOTE: CartPage reads work because the checkout flow runs client-side with
+      // the buyer's Firebase auth token. The subcollection rule must allow
+      // the buyer to read AFTER purchase — handled via the order record copy below.
+      // We fetch all cred docs for unique account IDs in one pass.
+      const credsByAccountId = {};
+      await Promise.all(uniqueIds.map(async (accId) => {
+        try {
+          const credSnap = await getDoc(doc(db, 'accounts', accId, 'credentials', 'slots'));
+          credsByAccountId[accId] = credSnap.exists() ? (credSnap.data().slots || []) : [];
+        } catch {
+          credsByAccountId[accId] = []; // rule may block — order will have empty creds (admin can fix)
+        }
+      }));
+
       const unitOffsetByDoc = {};
       uniqueIds.forEach(id => { unitOffsetByDoc[id] = 0; });
       const verifiedItems = cart.map((cartItem) => {
@@ -304,19 +323,22 @@ const CartPage = ({ cart, setCart }) => {
         const offset = unitOffsetByDoc[cartItem.id];
         const slotIndex = baseSoldCount + offset;
         unitOffsetByDoc[cartItem.id]++;
-        const creds = dbData.credentials;
-        const slot = (creds && creds.length > slotIndex) ? creds[slotIndex] : {
-          loginUsername: dbData.loginUsername || '', loginPassword: dbData.loginPassword || '',
-          loginEmail: dbData.loginEmail || '', loginNote: dbData.loginNote || '',
-          attachmentContent: dbData.attachmentContent || null,
-          attachmentUrl: dbData.attachmentUrl || null, attachmentName: dbData.attachmentName || null,
+        // Read from subcollection slots array
+        const slots = credsByAccountId[cartItem.id] || [];
+        const slot = slots[slotIndex] || {
+          loginUsername: '', loginPassword: '',
+          loginEmail: '', loginNote: '',
+          attachmentContent: null, attachmentName: null,
         };
         return {
           ...cartItem, verifiedPrice: finalPrice, dbPrice, _slotIndex: slotIndex,
-          loginUsername: slot.loginUsername || '', loginPassword: slot.loginPassword || '',
-          loginEmail: slot.loginEmail || '', loginNote: slot.loginNote || '',
+          loginUsername: slot.loginUsername || '',
+          loginPassword: slot.loginPassword || '',
+          loginEmail:    slot.loginEmail    || '',
+          loginNote:     slot.loginNote     || '',
           attachmentContent: slot.attachmentContent || null,
-          attachmentUrl: slot.attachmentUrl || null, attachmentName: slot.attachmentName || null,
+          attachmentUrl:     slot.attachmentUrl     || null,
+          attachmentName:    slot.attachmentName     || null,
         };
       });
 

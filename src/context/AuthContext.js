@@ -52,21 +52,23 @@ export const AuthProvider = ({ children }) => {
     try {
       const userRef = doc(db, 'users', result.user.uid);
       const snap = await getDoc(userRef);
+      // FIX 2025-L: sanitize displayName from Google (could contain HTML/scripts)
+      const rawName = result.user.displayName || '';
+      const cleanName = rawName.replace(/<[^>]*>/g, '').trim().slice(0, 50) || 'Người dùng';
       if (!snap.exists()) {
         await setDoc(userRef, {
           uid: result.user.uid,
           email: result.user.email,
-          displayName: result.user.displayName,
+          displayName: cleanName,
           role: 'user',
           balance: 0,
           createdAt: serverTimestamp(),
           avatar: result.user.photoURL,
         });
       } else {
-        // FIX: Update displayName/avatar in case they changed on Google
         const updates = {};
-        if (result.user.displayName && snap.data().displayName !== result.user.displayName)
-          updates.displayName = result.user.displayName;
+        if (cleanName && snap.data().displayName !== cleanName)
+          updates.displayName = cleanName;
         if (result.user.photoURL && snap.data().avatar !== result.user.photoURL)
           updates.avatar = result.user.photoURL;
         if (Object.keys(updates).length > 0) {

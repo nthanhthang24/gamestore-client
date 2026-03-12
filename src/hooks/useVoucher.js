@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import {
   collection, query, where, getDocs,
-  doc, updateDoc, increment, arrayUnion, runTransaction
+  doc, increment, arrayUnion
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 
@@ -96,20 +96,15 @@ export const useVoucher = () => {
     usedBy: arrayUnion(userEmail), // track per-user
   });
 
-  // Legacy standalone (vẫn giữ để không break nếu có nơi nào gọi)
-  const markVoucherUsed = async (voucherId, userEmail) => {
-    await updateDoc(doc(db, 'vouchers', voucherId), {
-      usedCount: increment(1),
-      usedBy: arrayUnion(userEmail || ''),
-    });
-  };
+  // FIX 2025-M: markVoucherUsed REMOVED — it accepted arbitrary (voucherId, userEmail) params.
+  // All voucher marking now happens inside CartPage's runTransaction via getVoucherUpdatePayload.
 
   const clearVoucher = () => { setVoucher(null); setVoucherError(''); };
 
   return {
     voucher, voucherError, voucherLoading,
     applyVoucher, calculateDiscount,
-    markVoucherUsed, getVoucherUpdatePayload,
+    getVoucherUpdatePayload,
     clearVoucher
   };
 };

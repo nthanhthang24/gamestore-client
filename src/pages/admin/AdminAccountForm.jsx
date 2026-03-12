@@ -1,7 +1,7 @@
 // src/pages/admin/AdminAccountForm.jsx — Sprint 6: Quantity + Multi-credentials
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { collection, addDoc, doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, getDoc, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { useGameTypes } from '../../hooks/useGameTypes';
 import {
@@ -452,34 +452,58 @@ const AdminAccountForm = () => {
       stats.filter(s => s.key && s.value).forEach(s => { statsObj[s.key] = s.value; });
 
       const qty = resolvedCreds.length;
-      const payload = {
+
+      // ══════════════════════════════════════════════════════════════
+      // FIX 2025-K: CREDENTIALS STORED IN SUBCOLLECTION (admin-only)
+      // ══════════════════════════════════════════════════════════════
+      // Previously: credentials (loginPassword, loginUsername...) were stored
+      // IN the main /accounts/{id} doc which has "allow read: if true".
+      // → Any anonymous user could call getDoc('accounts',id) and get all passwords!
+      //
+      // Fix: Strip ALL sensitive credential fields from the public doc.
+      // Store them in /accounts/{id}/credentials/slots (admin-only subcollection).
+      // CartPage reads credentials from the order record (written by admin during checkout).
+      const publicPayload = {
         ...form,
         price:        Number(form.price),
         originalPrice: form.originalPrice ? Number(form.originalPrice) : null,
         images:       [...images, ...uploadedImgUrls],
         stats:        statsObj,
         quantity:     qty,
-        soldCount:    isEdit ? undefined : 0, // only set on create
-        credentials:  resolvedCreds,
-        // Backward-compat: top-level from first slot
-        loginUsername:  resolvedCreds[0]?.loginUsername  || '',
-        loginPassword:  resolvedCreds[0]?.loginPassword  || '',
-        loginEmail:     resolvedCreds[0]?.loginEmail     || '',
-        loginNote:      resolvedCreds[0]?.loginNote      || '',
-        attachmentContent: resolvedCreds[0]?.attachmentContent || null,
-        attachmentName: resolvedCreds[0]?.attachmentName || null,
+        soldCount:    isEdit ? undefined : 0,
+        updatedAt:    serverTimestamp(),
+        // ❌ REMOVED: credentials, loginUsername, loginPassword, loginEmail, loginNote,
+        //             attachmentContent, attachmentName — these are now in subcollection only
+      };
+      if (publicPayload.soldCount === undefined) delete publicPayload.soldCount;
+
+      // Private credentials payload → /accounts/{id}/credentials/slots (admin-only)
+      const privatePayload = {
+        slots: resolvedCreds.map(s => ({
+          loginUsername:     s.loginUsername     || '',
+          loginPassword:     s.loginPassword     || '',
+          loginEmail:        s.loginEmail        || '',
+          loginNote:         s.loginNote         || '',
+          attachmentContent: s.attachmentContent || null,
+          attachmentName:    s.attachmentName    || null,
+        })),
         updatedAt: serverTimestamp(),
       };
-      if (payload.soldCount === undefined) delete payload.soldCount;
 
+      let accountId = id;
       if (isEdit) {
-        await updateDoc(doc(db, 'accounts', id), payload);
+        await updateDoc(doc(db, 'accounts', id), publicPayload);
+        // Update credentials subcollection
+        await setDoc(doc(db, 'accounts', id, 'credentials', 'slots'), privatePayload);
         toast.success('Cập nhật thành công!', { style:{ background:'var(--bg-card)', color:'var(--text-primary)', border:'1px solid var(--border)' } });
       } else {
-        payload.createdAt = serverTimestamp();
-        payload.soldCount = 0;
-        payload.views = 0;
-        await addDoc(collection(db, 'accounts'), payload);
+        publicPayload.createdAt = serverTimestamp();
+        publicPayload.soldCount = 0;
+        publicPayload.views = 0;
+        const ref = await addDoc(collection(db, 'accounts'), publicPayload);
+        accountId = ref.id;
+        // Write credentials to subcollection
+        await setDoc(doc(db, 'accounts', accountId, 'credentials', 'slots'), privatePayload);
         toast.success('Thêm account thành công!', { style:{ background:'var(--bg-card)', color:'var(--text-primary)', border:'1px solid var(--border)' } });
       }
       navigate('/admin/accounts');

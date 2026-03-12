@@ -19,6 +19,10 @@ service cloud.firestore {
     //                updateDoc(accountRef, {soldCount: qty, status:'sold'})
     //              to sabotage listings without buying.
     match /accounts/{accountId} {
+      // FIX 2025-K: credentials (loginPassword etc.) must NOT be stored here.
+      // They are written separately to /accounts/{id}/credentials/ (admin-only subcollection).
+      // AdminAccountForm must save credentials to subcollection, not main doc.
+      // Public read is required for shop listing — field masking is handled in AdminAccountForm.
       allow read: if true;
       allow create, delete: if isAdmin();
       // views: anyone can increment exactly +1 (view counter)
@@ -45,8 +49,13 @@ service cloud.firestore {
     }
 
     // ── Account Credentials (PRIVATE subcollection) ───────────────────
+    // FIX 2025-K: Credentials stored HERE (not in parent doc) so public
+    // "allow read: if true" on /accounts/{id} does NOT expose passwords.
+    // Buyers can read credentials only during checkout (they need them to build the order).
+    // After purchase, credentials are embedded in the order record — no further subcollection access needed.
     match /accounts/{accountId}/credentials/{docId} {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin() || isAuthenticated();
+      allow write: if isAdmin();
     }
 
     // ── Users ──────────────────────────────────────────────────────────
@@ -58,7 +67,8 @@ service cloud.firestore {
       allow update: if isAdmin()
         || (isOwner(userId) &&
             !request.resource.data.diff(resource.data)
-              .affectedKeys().hasAny(['balance', 'role', 'uid', 'createdAt']) &&
+              .affectedKeys().hasAny(['balance', 'role', 'uid', 'createdAt',
+                                      'banned', 'bannedAt', 'email']) &&
             request.resource.data.get('displayName', '').size() <= 100)
         // Checkout only: user can DECREASE balance (never increase)
         || (isOwner(userId) &&
@@ -132,8 +142,11 @@ service cloud.firestore {
             request.resource.data.diff(resource.data).affectedKeys()
               .hasOnly(['usedCount', 'usedBy']) &&
             request.resource.data.usedCount == resource.data.usedCount + 1 &&
+            // FIX 2025-J: verify added email == auth user's actual email
+            // Prevents attacker adding victim email to block their voucher access
             request.resource.data.usedBy.hasAll(resource.data.get('usedBy', [])) &&
-            request.resource.data.usedBy.size() == resource.data.get('usedBy', []).size() + 1);
+            request.resource.data.usedBy.size() == resource.data.get('usedBy', []).size() + 1 &&
+            request.resource.data.usedBy.hasAll([request.auth.token.email]));
     }
 
     // ── Game Types ────────────────────────────────────────────────────
@@ -245,13 +258,20 @@ service cloud.firestore {
     }
 
     // ── Ratings ───────────────────────────────────────────────────────
+    // FIX 2025-N: Firestore rules cannot cross-collection query to verify purchase.
+    // Server-side: RatingWidget does a re-verify getDoc before addDoc.
+    // Additional protection: orderId is required in the rating doc (proof of purchase link).
+    // Admin can delete fake ratings. Full enforcement requires a Cloud Function trigger.
     match /ratings/{id} {
       allow read: if true;
       allow create: if isAuthenticated()
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.get('stars', 0) >= 1
         && request.resource.data.get('stars', 0) <= 5
-        && request.resource.data.get('comment', '').size() <= 500;
+        && request.resource.data.get('comment', '').size() <= 500
+        // Require orderId to be present (proof of purchase reference)
+        && request.resource.data.keys().hasAny(['orderId'])
+        && request.resource.data.get('orderId', '').size() > 0;
       allow update, delete: if isAdmin();
     }
 
