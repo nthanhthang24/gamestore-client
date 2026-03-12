@@ -62,6 +62,17 @@ export const AuthProvider = ({ children }) => {
           createdAt: serverTimestamp(),
           avatar: result.user.photoURL,
         });
+      } else {
+        // FIX: Update displayName/avatar in case they changed on Google
+        const updates = {};
+        if (result.user.displayName && snap.data().displayName !== result.user.displayName)
+          updates.displayName = result.user.displayName;
+        if (result.user.photoURL && snap.data().avatar !== result.user.photoURL)
+          updates.avatar = result.user.photoURL;
+        if (Object.keys(updates).length > 0) {
+          const { updateDoc } = await import('firebase/firestore');
+          await updateDoc(userRef, updates).catch(() => {});
+        }
       }
     } catch (e) {
       console.warn('Firestore Google login:', e.message);

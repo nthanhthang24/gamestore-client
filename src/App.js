@@ -763,6 +763,32 @@ const AdminSettingsPage = () => {
   );
 };
 
+// Password field with show/hide toggle for order list
+const PasswordField = ({ password }) => {
+  const [show, setShow] = React.useState(false);
+  if (!password) return null;
+  return (
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+      <div>
+        <span style={{ color:'var(--text-muted)', fontSize:11 }}>Password:</span><br/>
+        <strong style={{ fontFamily:'monospace', color:'var(--accent)', letterSpacing: show ? 'normal' : '2px' }}>
+          {show ? password : '••••••••'}
+        </strong>
+      </div>
+      <div style={{ display:'flex', gap:4 }}>
+        <button onClick={() => setShow(s => !s)}
+          style={{ background:'none', border:'1px solid var(--border)', borderRadius:4, padding:'2px 8px', cursor:'pointer', fontSize:11, color:'var(--text-muted)' }}>
+          {show ? '🙈' : '👁'}
+        </button>
+        <button onClick={() => { navigator.clipboard.writeText(password); import('react-hot-toast').then(({default:t})=>t.success('Đã copy!',{duration:1500})); }}
+          style={{ background:'none', border:'1px solid var(--border)', borderRadius:4, padding:'2px 8px', cursor:'pointer', fontSize:11, color:'var(--text-muted)' }}>
+          Copy
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const UserOrdersPage = () => {
   const { currentUser } = useAuth();
   const [orders, setOrders] = React.useState([]);

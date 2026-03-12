@@ -172,9 +172,9 @@ const Navbar = ({ cartCount = 0 }) => {
               <div className="user-dropdown" ref={bellRef} style={{position:'relative'}}>
                 <button className="nav-icon-btn" onClick={()=>setBellOpen(p=>!p)} style={{position:'relative'}}>
                   <Bell size={18} />
-                  {(unreadCount + openTickets) > 0 && (
+                  {unreadCount > 0 && (
                     <span className="cart-badge" style={{background: unreadCount > 0 ? 'var(--accent)' : 'var(--gold)'}}>
-                      {unreadCount + openTickets}
+                      {unreadCount}
                     </span>
                   )}
                 </button>
@@ -195,7 +195,7 @@ const Navbar = ({ cartCount = 0 }) => {
                     {openTickets > 0 && (
                       <Link to="/support" className="dropdown-item" onClick={()=>setBellOpen(false)}
                         style={{color:'var(--gold)',gap:8}}>
-                        <Shield size={14}/> {openTickets} ticket đang chờ xử lý
+                        <Shield size={14}/> Bạn có {openTickets} ticket hỗ trợ đang mở
                       </Link>
                     )}
 
@@ -230,7 +230,7 @@ const Navbar = ({ cartCount = 0 }) => {
                       );
                     })}
 
-                    {sysNotifications.length === 0 && openTickets === 0 && (
+                    {sysNotifications.length === 0 && (
                       <div style={{padding:'20px 16px',fontSize:13,color:'var(--text-muted)',textAlign:'center'}}>
                         <Bell size={28} style={{opacity:0.2,display:'block',margin:'0 auto 8px'}}/>
                         Không có thông báo mới

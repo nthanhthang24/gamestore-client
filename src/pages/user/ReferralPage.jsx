@@ -185,6 +185,7 @@ const ReferralPage = () => {
                         ? <span style={{color:'var(--success)',fontSize:12,fontWeight:600}}>
                             ✅ +{(r.commissionAmount || 0).toLocaleString('vi-VN')}đ
                             {r.topupAmount && <span style={{fontSize:11,color:'var(--text-muted)',marginLeft:4}}>({commissionPct}% của {r.topupAmount.toLocaleString('vi-VN')}đ)</span>}
+                            {!r.credited && <span style={{fontSize:10,background:'rgba(255,215,0,0.12)',color:'var(--gold)',borderRadius:4,padding:'1px 6px',marginLeft:4}}>⏳ Chờ nạp tiền</span>}
                           </span>
                         : <span style={{color:'var(--gold)',fontSize:12}}>⏳ Chờ bạn bè nạp tiền</span>}
                     </td>

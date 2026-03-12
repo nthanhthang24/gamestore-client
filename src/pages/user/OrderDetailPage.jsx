@@ -55,16 +55,18 @@ const OrderDetailPage = () => {
     setSubmitting(true);
     try {
       const ref = await addDoc(collection(db,'tickets'),{
-        orderId:   id,
-        userId:    currentUser.uid,
-        userEmail: currentUser.email,
-        type:      ticketForm.type,
+        orderId:     id,
+        userId:      currentUser.uid,
+        userEmail:   currentUser.email,
+        userName:    order.userName || currentUser.email,
+        type:        ticketForm.type,
         description: ticketForm.description.trim(),
-        status:    'open',
-        items:     order.items?.map(i=>i.title)||[],
-        total:     order.total,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+        status:      'open',
+        adminReply:  null,
+        items:       order.items?.map(i=>i.title)||[],
+        total:       order.total,
+        createdAt:   serverTimestamp(),
+        updatedAt:   serverTimestamp(),
       });
       setTickets(p=>[...p,{ id:ref.id, ...ticketForm, status:'open', createdAt:new Date() }]);
       setShowTicket(false);

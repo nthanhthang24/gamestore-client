@@ -9,7 +9,7 @@ import {
 import { db } from '../../firebase/config';
 import {
   ShoppingCart, Trash2, Shield, Zap, ArrowRight, Package,
-  Wallet, AlertCircle, Tag, CheckCircle, X, Layers
+  Wallet, AlertCircle, Tag, CheckCircle, X, Layers, Flame
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useVoucher } from '../../hooks/useVoucher';

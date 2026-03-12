@@ -16,6 +16,38 @@ import './AdminServices.css';
 
 const T = { style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' } };
 
+// ── Dịch vụ mặc định để seed vào Firestore ──────────────────────
+const DEFAULT_SERVICES = [
+  {
+    type: 'cay-thue', name: 'Cày Thuê Rank',
+    description: 'Đẩy rank cho tài khoản của bạn với đội ngũ player chuyên nghiệp, tỷ lệ thắng cao.',
+    features: ['Rank từ Sắt đến Cao Thủ', 'Bảo hành rank 3 ngày', 'Không share thông tin', 'Báo cáo tiến độ hàng ngày'],
+    priceType: 'contact', price: null, priceUnit: null,
+    estimatedTime: '1–7 ngày', color: '#ff6b35', featured: true, available: true, order: 1,
+  },
+  {
+    type: 'doi-mat-khau', name: 'Đổi Mật Khẩu Game',
+    description: 'Hỗ trợ đổi mật khẩu tài khoản game nhanh chóng, bảo mật, đảm bảo tuyệt đối.',
+    features: ['Xử lý trong 30 phút', 'Hỗ trợ mọi game', 'Cam kết bảo mật', 'Hỗ trợ 24/7'],
+    priceType: 'fixed', price: 20000, priceUnit: 'lần',
+    estimatedTime: '< 30 phút', color: '#7c3aed', featured: false, available: true, order: 2,
+  },
+  {
+    type: 'nhap-thong-tin', name: 'Nhập Thông Tin Ảo',
+    description: 'Nhập đầy đủ thông tin xác thực (CMND/CCCD ảo, số điện thoại) cho tài khoản trắng, tăng bảo mật.',
+    features: ['CCCD / CMND ảo hợp lệ', 'SĐT xác minh OTP', 'Email backup', 'Hướng dẫn chi tiết'],
+    priceType: 'fixed', price: 50000, priceUnit: 'tài khoản',
+    estimatedTime: '1–3 giờ', color: '#059669', featured: false, available: true, order: 3,
+  },
+  {
+    type: 'cay-thue', name: 'Cày Quest / Event',
+    description: 'Hoàn thành nhiệm vụ, sự kiện giới hạn thay bạn. Nhận phần thưởng mà không tốn thời gian.',
+    features: ['Tất cả quest thường/event', 'Bảo toàn vật phẩm', 'Xử lý nhanh', 'Báo cáo screenshot'],
+    priceType: 'contact', price: null, priceUnit: null,
+    estimatedTime: '2–24 giờ', color: '#d97706', featured: false, available: true, order: 4,
+  },
+];
+
 const SERVICE_TYPES = [
   { value: 'cay-thue', label: '⚔️ Cày thuê', icon: <Sword size={16} /> },
   { value: 'doi-mat-khau', label: '🔐 Đổi mật khẩu', icon: <Lock size={16} /> },
@@ -47,6 +79,29 @@ const ManageServicesTab = () => {
   const [featureInput, setFeatureInput] = useState('');
   // ✅ Inline quick-edit state: { id, priceType, price, priceUnit }
   const [quickEdit, setQuickEdit] = useState(null);
+
+  // ✅ FIX: Escape key closes quick-edit popup
+  React.useEffect(() => {
+    const handler = (e) => { if (e.key === 'Escape') setQuickEdit(null); };
+    if (quickEdit) document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [quickEdit]);
+  const [seeding, setSeeding] = useState(false);
+
+  const seedDefaultServices = async () => {
+    setSeeding(true);
+    try {
+      await Promise.all(
+        DEFAULT_SERVICES.map(svc =>
+          addDoc(collection(db, 'services'), { ...svc, createdAt: serverTimestamp() })
+        )
+      );
+      toast.success('✅ Đã tạo 4 dịch vụ mặc định! Danh sách sẽ xuất hiện ngay.', T);
+      // onSnapshot sẽ tự refresh — không cần reload
+    } catch(e) {
+      toast.error('Lỗi seed: ' + e.message, T);
+    } finally { setSeeding(false); }
+  };
 
   const [form, setForm] = useState({
     name: '', type: 'cay-thue', description: '',
@@ -234,7 +289,20 @@ const ManageServicesTab = () => {
       )}
 
       {loading ? <div className="av-loading">Đang tải...</div> : services.length === 0 ? (
-        <div className="av-empty"><div style={{ fontSize: 36, marginBottom: 12 }}>🎮</div><div>Chưa có dịch vụ nào.</div></div>
+        <div className="av-empty" style={{ textAlign:'center', padding:'60px 24px' }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>🎮</div>
+          <div style={{ fontWeight:700, fontSize:16, marginBottom:8, color:'var(--text-primary)' }}>Chưa có dịch vụ nào trong Firestore</div>
+          <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:24, maxWidth:400, margin:'0 auto 24px' }}>
+            Các dịch vụ mẫu đang hiển thị trên site nhưng chưa được lưu vào database — admin chưa thể chỉnh sửa được.
+            Nhấn bên dưới để seed 4 dịch vụ mặc định vào Firestore.
+          </div>
+          <button className="btn btn-primary" onClick={seedDefaultServices} disabled={seeding} style={{ gap:8 }}>
+            {seeding ? '⏳ Đang tạo...' : '🚀 Seed 4 dịch vụ mặc định vào Firestore'}
+          </button>
+          <div style={{ marginTop:12, fontSize:12, color:'var(--text-muted)' }}>
+            Sau khi seed xong, bạn có thể sửa giá, unit, tên ngay trên danh sách.
+          </div>
+        </div>
       ) : (
         <div className="av-list">
           {services.map(s => (
@@ -243,26 +311,31 @@ const ManageServicesTab = () => {
                 {SERVICE_TYPES.find(t => t.value === s.type)?.icon || <Zap size={16} />}
               </div>
               <div className="av-item-info">
-                <div style={{ display: 'flex', align: 'center', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span className="av-code">{s.name}</span>
                   {s.featured && <Star size={13} style={{ color: 'var(--gold)' }} />}
                 </div>
                 <span className="av-meta">{SERVICE_TYPES.find(t => t.value === s.type)?.label}</span>
-                <span className="av-meta">
-                  {s.priceType === 'contact' ? '💬 Liên hệ báo giá' :
-                   s.priceType === 'free' ? '🆓 Miễn phí' :
-                   `${s.price?.toLocaleString('vi-VN')}đ/${s.priceUnit}`}
-                  {s.estimatedTime && ` · ⏱ ${s.estimatedTime}`}
-                </span>
               </div>
+
+              {/* ✅ Clickable price badge — click to quick-edit */}
+              <button
+                className="asvc-price-badge"
+                title="Click để sửa giá"
+                onClick={() => setQuickEdit({ id: s.id, priceType: s.priceType || 'contact', price: s.price || '', priceUnit: s.priceUnit || '' })}
+              >
+                <DollarSign size={12} />
+                <span>
+                  {s.priceType === 'fixed'
+                    ? <><strong>{s.price?.toLocaleString('vi-VN')}đ</strong><span className="asvc-price-unit">/{s.priceUnit || '?'}</span></>
+                    : s.priceType === 'free' ? 'Miễn phí'
+                    : 'Liên hệ'}
+                </span>
+                <Edit2 size={11} className="asvc-price-edit-icon" />
+              </button>
+
               <div className="av-item-actions">
-                {/* ✅ Quick-edit price button */}
-                <button className="btn btn-ghost btn-sm" title="Sửa nhanh giá"
-                  onClick={() => setQuickEdit({ id: s.id, priceType: s.priceType || 'contact', price: s.price || '', priceUnit: s.priceUnit || '' })}
-                  style={{ color: 'var(--gold)', fontSize: 12 }}>
-                  <DollarSign size={14} />
-                </button>
-                <button className="btn btn-ghost btn-sm" onClick={() => openEdit(s)} style={{ color: 'var(--accent)', fontSize: 12 }}>✏️</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => openEdit(s)} style={{ color: 'var(--accent)', fontSize: 12 }} title="Sửa toàn bộ">✏️</button>
                 <button className="btn btn-ghost btn-sm" onClick={() => toggle(s.id, 'available', s.available)}>
                   {s.available ? <ToggleRight size={20} style={{ color: 'var(--success)' }} /> : <ToggleLeft size={20} />}
                 </button>

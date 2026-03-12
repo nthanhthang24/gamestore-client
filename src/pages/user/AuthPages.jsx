@@ -13,7 +13,7 @@ import { db } from '../../firebase/config';
 import toast from 'react-hot-toast';
 import './AuthPages.css';
 
-const NEW_USER_BONUS   = 10000; // 10k cho người đăng ký qua referral
+// NEW_USER_BONUS is loaded from Firestore settings/global.referralNewUserBonus at runtime
 
 const GoogleLoginButton = () => {
   const { loginWithGoogle } = useAuth();
@@ -197,6 +197,16 @@ export const RegisterPage = () => {
     if (form.password.length < 6) { setError('Mật khẩu phải có ít nhất 6 ký tự'); return; }
     setLoading(true);
     try {
+      // Load bonus amount from settings (fallback to 10000)
+      let NEW_USER_BONUS = 10000;
+      try {
+        const settingsSnap = await getDocs(query(collection(db, 'settings'), where('__name__', '==', 'global')));
+        if (!settingsSnap.empty) {
+          const v = settingsSnap.docs[0].data().referralNewUserBonus;
+          if (v !== undefined && v >= 0) NEW_USER_BONUS = v;
+        }
+      } catch(_) {}
+
       const newUser = await register(form.email, form.password, form.displayName);
       const uid = newUser?.user?.uid; // UserCredential.user.uid
 
@@ -312,7 +322,9 @@ export const RegisterPage = () => {
             </label>
             <input type="text" name="refCode" className="form-input"
               placeholder="Nhập mã giới thiệu (8 ký tự)" value={form.refCode}
-              onChange={handleChange} maxLength={8}
+              onChange={e => setForm({ ...form, refCode: e.target.value.toUpperCase() })}
+              onPaste={e => { e.preventDefault(); const t = (e.clipboardData.getData('text')||'').toUpperCase().slice(0,8); setForm({ ...form, refCode: t }); }}
+              maxLength={8}
               style={{ textTransform:'uppercase', letterSpacing:'2px', fontFamily:'monospace' }} />
           </div>
           <button type="submit" className="btn btn-primary w-full btn-lg" disabled={loading}>

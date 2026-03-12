@@ -179,7 +179,14 @@ service cloud.firestore {
     // ── Notifications ─────────────────────────────────────────────────
     match /notifications/{id} {
       allow read: if isAuthenticated();
-      allow create, delete: if isAdmin();
+      // Admin can create broadcast (targetAll) or targeted notifications
+      // Also allow authenticated users to create targeted system notifications
+      // (e.g. ticket status updates, service confirmations sent by admin client)
+      allow create: if isAdmin()
+        || (isAuthenticated()
+            && request.resource.data.targetAll == false
+            && request.resource.data.createdBy == 'system');
+      allow delete: if isAdmin();
       allow update: if isAdmin()
         || (isAuthenticated() &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']));

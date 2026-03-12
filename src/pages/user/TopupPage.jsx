@@ -31,6 +31,8 @@ const TopupPage = () => {
   const [copied, setCopied] = useState('');
   const [activeTab, setActiveTab] = useState('topup');
   const [minTopup, setMinTopup] = useState(DEFAULT_MIN_TOPUP);
+  const [loadingSecs, setLoadingSecs] = useState(0);
+  const loadingTimerRef = React.useRef(null);
 
   // Load minTopupAmount from Firestore settings
   useEffect(() => {
@@ -119,6 +121,9 @@ const TopupPage = () => {
     if (!amt || amt < minTopup) { toast.error(`Số tiền tối thiểu ${minTopup.toLocaleString('vi-VN')}đ`); return; }
     // ✅ FIX: Giới hạn số lần tạo QR (max 50 triệu/lần nạp)
     if (amt > 50_000_000) { toast.error('Số tiền tối đa mỗi lần nạp là 50,000,000đ'); return; }
+    setLoadingSecs(0);
+    if (loadingTimerRef.current) clearInterval(loadingTimerRef.current);
+    loadingTimerRef.current = setInterval(() => setLoadingSecs(s => s + 1), 1000);
     // Rate limit đơn giản: max 3 topup pending cùng lúc (không cần composite index)
     const pendingTopups = await getDocs(query(
       collection(db, 'topups'),
@@ -165,7 +170,7 @@ const TopupPage = () => {
         { duration: 6000, style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' } }
       );
       console.error('QR Error:', err.message, 'URL:', SERVER_URL);
-    } finally { setLoading(false); }
+    } finally { setLoading(false); setLoadingSecs(0); if (loadingTimerRef.current) { clearInterval(loadingTimerRef.current); loadingTimerRef.current = null; } }
   };
 
   return (
@@ -234,7 +239,7 @@ const TopupPage = () => {
                   disabled={loading || !amount || Number(amount) < minTopup}
                 >
                   {loading
-                    ? <><span className="spinner" style={{ width: 18, height: 18, borderWidth: 2 }} /> Đang tạo QR...</>
+                    ? <><span className="spinner" style={{ width: 18, height: 18, borderWidth: 2 }} /> Đang tạo QR... {loadingSecs > 8 ? `(${loadingSecs}s - server đang khởi động...)` : ''}</>
                     : <><QrCode size={20} /> Tạo mã QR chuyển khoản</>
                   }
                 </button>

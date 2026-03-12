@@ -98,6 +98,10 @@ const OrderModal = ({ service, onClose, onSubmit }) => {
   const handleSubmit = async () => {
     if (!currentUser) { toast.error('Vui lòng đăng nhập!', T); return; }
     if (!form.contactInfo.trim()) { toast.error('Nhập thông tin liên hệ!', T); return; }
+    // Validate gameAccount required for cày thuê type
+    if (service.type === 'cay-thue' && !form.gameAccount.trim()) {
+      toast.error('Vui lòng nhập tên tài khoản game!', T); return;
+    }
     setSubmitting(true);
     // ✅ FIX: Enforce quantity là số nguyên dương
     const qty = Math.max(1, Math.floor(Number(form.quantity) || 1));
@@ -132,7 +136,13 @@ const OrderModal = ({ service, onClose, onSubmit }) => {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Tên tài khoản game <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(nếu cần)</span></label>
+            <label className="form-label">
+              Tên tài khoản game
+              {service.type === 'cay-thue'
+                ? <span style={{ color: 'var(--danger)', marginLeft: 4 }}>*</span>
+                : <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> (nếu cần)</span>
+              }
+            </label>
             <input className="form-input" value={form.gameAccount}
               onChange={e => setForm(f => ({ ...f, gameAccount: e.target.value }))}
               placeholder="VD: PlayerName#VN1 hoặc SĐT đăng ký game" />

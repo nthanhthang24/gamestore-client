@@ -38,40 +38,44 @@ const AdminTickets = () => {
   // ✅ FIX 4: Send in-app notification to user when ticket is updated
   const sendTicketNotification = async (ticket, newStatus, adminReply) => {
     const STATUS_MSG = {
-      in_progress: { title: '🔄 Ticket đang được xử lý', emoji: '🔄' },
-      resolved:    { title: '✅ Ticket đã được giải quyết', emoji: '✅' },
-      rejected:    { title: '❌ Ticket đã bị từ chối', emoji: '❌' },
+      in_progress: { title: '🔄 Ticket đang được xử lý' },
+      resolved:    { title: '✅ Ticket đã được giải quyết' },
+      rejected:    { title: '❌ Ticket đã bị từ chối' },
     };
     const msg = STATUS_MSG[newStatus];
-    if (!msg || !ticket.userId) return;
+    if (!msg) return; // status not worth notifying (e.g. re-open)
+
+    // ✅ FIX: userId is required — log clearly if missing
+    if (!ticket.userId) {
+      console.error('sendTicketNotification: ticket.userId missing', ticket);
+      toast.error('Không thể gửi thông báo: ticket thiếu userId', TS);
+      return;
+    }
 
     const typeLabel = { warranty:'Bảo hành', refund:'Hoàn tiền', support:'Hỗ trợ' }[ticket.type] || 'Hỗ trợ';
-    let body = `Yêu cầu ${typeLabel} của bạn (Đơn #${(ticket.orderId||ticket.id).slice(-8).toUpperCase()}) ${
+    let body = `Yêu cầu ${typeLabel} của bạn (Mã #${(ticket.orderId||ticket.id).slice(-8).toUpperCase()}) ${
       newStatus === 'in_progress' ? 'đang được admin xử lý.' :
       newStatus === 'resolved'    ? 'đã được giải quyết.' :
       'đã bị từ chối.'
     }`;
-    if (adminReply) body += ` Phản hồi: "${adminReply}"`;
+    if (adminReply) body += ` Phản hồi từ admin: "${adminReply}"`;
     if (newStatus === 'resolved' && ticket.type === 'refund' && ticket.total > 0) {
-      body += ` Số tiền ${ticket.total.toLocaleString('vi-VN')}đ đã được hoàn vào số dư.`;
+      body += ` ${ticket.total.toLocaleString('vi-VN')}đ đã hoàn vào số dư của bạn.`;
     }
 
-    try {
-      await addDoc(collection(db, 'notifications'), {
-        title: msg.title,
-        body,
-        type: 'ticket',
-        targetAll: false,
-        targetUserId: ticket.userId,
-        ticketId: ticket.id,
-        active: true,
-        read: [],
-        createdAt: serverTimestamp(),
-        createdBy: 'system',
-      });
-    } catch(e) {
-      console.warn('Failed to send ticket notification:', e.message);
-    }
+    // ✅ FIX: throw so caller knows if this fails
+    await addDoc(collection(db, 'notifications'), {
+      title: msg.title,
+      body,
+      type: 'ticket',
+      targetAll: false,
+      targetUserId: ticket.userId,
+      ticketId: ticket.id,
+      active: true,
+      read: [],
+      createdAt: serverTimestamp(),
+      createdBy: 'system',
+    });
   };
 
   const handleAction = async () => {
@@ -94,8 +98,13 @@ const AdminTickets = () => {
         toast.success('Đã cập nhật ticket',TS);
       }
 
-      // ✅ FIX 4: Notify user
-      await sendTicketNotification(selected, action, reply.trim());
+      // Notify user — separate try so ticket update is never rolled back by notif failure
+      try {
+        await sendTicketNotification(selected, action, reply.trim());
+      } catch(notifErr) {
+        console.error('Notification failed:', notifErr);
+        toast.error('Đã cập nhật ticket nhưng gửi thông báo thất bại: ' + notifErr.message, TS);
+      }
 
       setTickets(p=>p.map(t=>t.id===selected.id?{...t,...updates}:t));
       setSelected(null); setReply(''); setAction('');

@@ -7,13 +7,16 @@ import {
 } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { useAuth } from '../../context/AuthContext';
-import { Bell, CheckCheck, Info, Zap, CheckCircle, AlertTriangle, ArrowLeft } from 'lucide-react';
+import { Bell, CheckCheck, Info, Zap, CheckCircle, AlertTriangle, ArrowLeft, Ticket, Shield, Package } from 'lucide-react';
 
 const TYPE_CONFIG = {
-  info:    { label: 'Thông tin',  color: 'var(--accent)',  bg: 'rgba(0,212,255,0.07)',  icon: <Info size={16}/> },
-  success: { label: 'Tốt lành',  color: 'var(--success)', bg: 'rgba(34,197,94,0.07)',  icon: <CheckCircle size={16}/> },
-  warning: { label: 'Cảnh báo',  color: 'var(--gold)',    bg: 'rgba(234,179,8,0.07)',  icon: <AlertTriangle size={16}/> },
-  promo:   { label: 'Khuyến mãi',color: '#c084fc',        bg: 'rgba(192,132,252,0.07)',icon: <Zap size={16}/> },
+  info:     { label: 'Thông tin',   color: 'var(--accent)',  bg: 'rgba(0,212,255,0.07)',   icon: <Info size={16}/> },
+  success:  { label: 'Tốt lành',   color: 'var(--success)', bg: 'rgba(34,197,94,0.07)',   icon: <CheckCircle size={16}/> },
+  warning:  { label: 'Cảnh báo',   color: 'var(--gold)',    bg: 'rgba(234,179,8,0.07)',   icon: <AlertTriangle size={16}/> },
+  promo:    { label: 'Khuyến mãi', color: '#c084fc',        bg: 'rgba(192,132,252,0.07)', icon: <Zap size={16}/> },
+  ticket:   { label: 'Hỗ trợ',    color: 'var(--gold)',    bg: 'rgba(255,215,0,0.07)',   icon: <Shield size={16}/> },
+  service:  { label: 'Dịch vụ',   color: 'var(--accent)',  bg: 'rgba(0,212,255,0.07)',   icon: <Package size={16}/> },
+  referral: { label: 'Hoa hồng',  color: 'var(--success)', bg: 'rgba(34,197,94,0.07)',   icon: <CheckCircle size={16}/> },
 };
 
 const TS = { style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' } };
