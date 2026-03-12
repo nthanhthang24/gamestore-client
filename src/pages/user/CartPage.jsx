@@ -1,15 +1,15 @@
 // src/pages/user/CartPage.jsx
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import {
   runTransaction, doc, collection, addDoc, getDoc,
-  serverTimestamp, increment
+  serverTimestamp, getDocs, query, where
 } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import {
   ShoppingCart, Trash2, Shield, Zap, ArrowRight, Package,
-  Wallet, AlertCircle, Tag, CheckCircle, X, Layers, Flame
+  Wallet, AlertCircle, Tag, CheckCircle, X, Layers, Flame, Clock
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useVoucher } from '../../hooks/useVoucher';
@@ -18,100 +18,196 @@ import './CartPage.css';
 
 const TS = { style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' } };
 
+// ─── Check flash sale còn active không ────────────────────────────────────────
+const checkFlashSaleActive = async () => {
+  try {
+    const snap = await getDocs(query(collection(db, 'flashSales'), where('active', '==', true)));
+    const now = new Date();
+    return snap.docs.some(d => {
+      const fs = d.data();
+      const start = fs.startAt?.toDate ? fs.startAt.toDate() : (fs.startAt ? new Date(fs.startAt) : null);
+      const end   = fs.endAt?.toDate   ? fs.endAt.toDate()   : (fs.endAt   ? new Date(fs.endAt)   : null);
+      if (start && now < start) return false;
+      if (end   && now > end)   return false;
+      return true;
+    });
+  } catch { return true; } // lỗi → giữ nguyên, an toàn hơn
+};
+
+// ─── Group cart items thành [{id, ...item, qty, cartKeys[]}] ──────────────────
+const groupCart = (cart) => {
+  const map = new Map();
+  cart.forEach(item => {
+    if (!map.has(item.id)) map.set(item.id, { ...item, qty: 0, cartKeys: [] });
+    const g = map.get(item.id);
+    g.qty++;
+    g.cartKeys.push(item.cartKey || item.id);
+  });
+  return [...map.values()];
+};
+
 const CartPage = ({ cart, setCart }) => {
   const { currentUser, userProfile, fetchUserProfile } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const checkoutInProgress = useRef(false);
-  const lastCheckoutTime = useRef(0); // T5-01: rate limit between checkouts
+  const lastCheckoutTime = useRef(0);
   const [voucherCode, setVoucherCode] = useState('');
+  const [flashExpired, setFlashExpired] = useState(false);
+  const [voucherExpired, setVoucherExpired] = useState(false);
 
   const { voucher, voucherError, voucherLoading, applyVoucher, calculateDiscount, getVoucherUpdatePayload, clearVoucher } = useVoucher();
   const { getBulkDiscount } = useBulkDiscount();
 
-  // Remove by cartKey (unique per slot) or fallback index
-  const removeItem = (cartKey) => setCart(prev => prev.filter(item => (item.cartKey || item.id) !== cartKey));
+  // Memoize để tránh recompute mỗi render
+  const hasSaleItems = useMemo(() => cart.some(i => i.salePrice && i.salePrice < i.price), [cart]);
+  const grouped      = useMemo(() => groupCart(cart), [cart]);
 
-  // Giá hiển thị (có thể bị flash sale tác động từ bên ngoài qua salePrice)
-  const subtotal    = cart.reduce((sum, item) => sum + (item.salePrice || item.price), 0);
+  // ── FIX 1: Flash sale real-time monitor — poll khi tab đang mở ──────────────
+  // Dùng `hasSaleItems` thay vì inline expression trong deps
+  useEffect(() => {
+    if (!hasSaleItems) { setFlashExpired(false); return; }
+
+    let cancelled = false;
+    const check = async () => {
+      const active = await checkFlashSaleActive();
+      if (cancelled) return;
+      if (!active) {
+        setFlashExpired(true);
+        setCart(prev => prev.map(item => item.salePrice ? { ...item, salePrice: null } : item));
+        toast('⏰ Flash Sale đã kết thúc. Giá đã được cập nhật về giá gốc.', { icon: '⏰', duration: 5000 });
+      } else {
+        setFlashExpired(false);
+      }
+    };
+
+    check(); // Kiểm tra ngay lập tức
+    const interval = setInterval(check, 15000); // Poll mỗi 15s
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [hasSaleItems]); // deps ổn định
+
+  // ── FIX 2: Voucher real-time expiry monitor ──────────────────────────────────
+  useEffect(() => {
+    if (!voucher?.id) { setVoucherExpired(false); return; }
+
+    let cancelled = false;
+    const checkVoucher = async () => {
+      try {
+        const snap = await getDoc(doc(db, 'vouchers', voucher.id));
+        if (cancelled) return;
+        if (!snap.exists()) { clearVoucher(); setVoucherExpired(true); return; }
+        const v = snap.data();
+        const now = new Date();
+        const expired   = v.expiresAt ? (v.expiresAt.toDate ? v.expiresAt.toDate() : new Date(v.expiresAt)) < now : false;
+        const exhausted = v.usageLimit > 0 && (v.usedCount || 0) >= v.usageLimit;
+        if (expired || exhausted || !v.active) {
+          clearVoucher();
+          setVoucherExpired(true);
+          toast.error('Voucher đã hết hạn hoặc không còn hiệu lực.', TS);
+        } else {
+          setVoucherExpired(false);
+        }
+      } catch {}
+    };
+
+    checkVoucher();
+    const interval = setInterval(checkVoucher, 30000); // Poll mỗi 30s
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [voucher?.id]);
+
+  // ── Qty controls ─────────────────────────────────────────────────────────────
+  const increaseQty = useCallback((accountId) => {
+    const item = cart.find(i => i.id === accountId);
+    if (!item) return;
+    const currentQty = cart.filter(i => i.id === accountId).length;
+    const maxStock = (item.quantity || 1) - (item.soldCount || 0);
+    if (currentQty >= maxStock) {
+      toast.error(`Chỉ còn ${maxStock} nick khả dụng.`, TS); return;
+    }
+    setCart(prev => [...prev, { ...item, cartKey: accountId + '_add_' + Date.now(), buyQty: undefined }]);
+  }, [cart]);
+
+  const decreaseQty = useCallback((accountId) => {
+    setCart(prev => {
+      const lastIdx = [...prev].map((i, idx) => ({ i, idx })).filter(({ i }) => i.id === accountId).pop()?.idx;
+      if (lastIdx === undefined) return prev;
+      return prev.filter((_, i) => i !== lastIdx);
+    });
+  }, []);
+
+  const removeGroup = useCallback((accountId) => {
+    setCart(prev => prev.filter(i => i.id !== accountId));
+  }, []);
+
+  // ── Totals ────────────────────────────────────────────────────────────────────
+  const subtotal        = cart.reduce((sum, item) => sum + (item.salePrice || item.price), 0);
   const { discount: bulkDiscountAmt, rule: bulkRule } = getBulkDiscount(subtotal, cart.length);
-  const afterBulk   = subtotal - bulkDiscountAmt;
+  const afterBulk       = subtotal - bulkDiscountAmt;
   const voucherDiscount = calculateDiscount(voucher, afterBulk);
-  const total       = Math.max(0, subtotal - bulkDiscountAmt - voucherDiscount);
-  const balance     = userProfile?.balance || 0;
-  const insufficient = balance < Math.round(total);
+  const total           = Math.max(0, subtotal - bulkDiscountAmt - voucherDiscount);
+  const balance         = userProfile?.balance || 0;
+  const insufficient    = balance < Math.round(total);
+  const totalItems      = cart.length;
 
   const handleApplyVoucher = async () => {
     if (!currentUser) { navigate('/login'); return; }
     await applyVoucher(voucherCode.trim(), subtotal, currentUser.email);
   };
 
-  // ✅ FIX CRITICAL #1 + #2 + #3: Toàn bộ checkout chạy trong Firestore Transaction
-  // - Đọc balance mới nhất từ DB (không tin client)
-  // - Đọc và verify giá từng account từ DB (không tin client-side price)
-  // - Kiểm tra status === 'available' cho từng account
-  // - Tính lại total server-side trong transaction
-  // - Tất cả atomic: hoặc thành công hết hoặc rollback hết
+  // ── Checkout ─────────────────────────────────────────────────────────────────
   const handleCheckout = useCallback(async () => {
     if (!currentUser) { navigate('/login'); return; }
     if (cart.length === 0) return;
     if (checkoutInProgress.current) return;
     const now = Date.now();
     if (now - lastCheckoutTime.current < 3000) {
-      toast.error('Vui lòng đợi vài giây trước khi thử lại.', TS);
-      return;
+      toast.error('Vui lòng đợi vài giây trước khi thử lại.', TS); return;
     }
     lastCheckoutTime.current = now;
     checkoutInProgress.current = true;
     setLoading(true);
 
     try {
-      // ── Group cart items by account.id (buyer may have N units of same listing) ──
-      // uniqueIds preserves order of first appearance
-      const uniqueIds = [...new Set(cart.map(i => i.id))];
-      const accountRefs  = uniqueIds.map(id => doc(db, 'accounts', id));
+      const uniqueIds   = [...new Set(cart.map(i => i.id))];
+      const accountRefs = uniqueIds.map(id => doc(db, 'accounts', id));
       const accountSnaps = await Promise.all(accountRefs.map(ref => getDoc(ref)));
       const snapByDocId  = {};
       uniqueIds.forEach((id, idx) => { snapByDocId[id] = accountSnaps[idx]; });
 
-      // ── Pre-validate each unique doc ──
+      // Pre-validate
       for (const id of uniqueIds) {
         const snap = snapByDocId[id];
         const cartItem = cart.find(x => x.id === id);
         if (!snap.exists()) {
-          toast.error(`Tài khoản "${cartItem?.title}" không còn tồn tại.`, TS);
-          return;
+          toast.error(`Tài khoản "${cartItem?.title}" không còn tồn tại.`, TS); return;
         }
         const d = snap.data();
-        const soldCount  = d.soldCount  || 0;
-        const quantity   = d.quantity   || 1;
-        const wantUnits  = cart.filter(x => x.id === id).length;
-        const stockLeft  = quantity - soldCount;
+        const wantUnits = cart.filter(x => x.id === id).length;
+        const stockLeft = (d.quantity || 1) - (d.soldCount || 0);
         if (d.status !== 'available' || stockLeft <= 0) {
-          toast.error(`Tài khoản "${cartItem?.title}" đã hết hàng. Vui lòng xoá khỏi giỏ.`, TS);
-          setCart(prev => prev.filter(x => x.id !== id));
-          return;
+          toast.error(`Tài khoản "${cartItem?.title}" đã hết hàng.`, TS);
+          setCart(prev => prev.filter(x => x.id !== id)); return;
         }
         if (wantUnits > stockLeft) {
-          toast.error(`"${cartItem?.title}": chỉ còn ${stockLeft} nick, bạn đang chọn ${wantUnits}.`, TS);
-          return;
+          toast.error(`"${cartItem?.title}": chỉ còn ${stockLeft} nick, bạn đang chọn ${wantUnits}.`, TS); return;
         }
       }
 
-      // ── Compute verifiedSubtotal from pre-tx snaps (prices only, no credential assignment yet) ──
+      // FIX: Re-verify flash sale trước khi tính giá checkout
+      const flashActive = await checkFlashSaleActive();
       let verifiedSubtotal = 0;
       const verifiedPriceByCartKey = {};
       cart.forEach((cartItem) => {
-        const dbData = snapByDocId[cartItem.id].data();
-        const dbPrice = dbData.price;
-        const clientSalePrice = cartItem.salePrice;
+        const dbData   = snapByDocId[cartItem.id].data();
+        const dbPrice  = dbData.price;
+        // Nếu flash sale đã hết → bỏ qua salePrice client
+        const clientSalePrice = flashActive ? cartItem.salePrice : null;
         const finalPrice = (clientSalePrice && clientSalePrice > 0 && clientSalePrice <= dbPrice)
           ? clientSalePrice : dbPrice;
         verifiedSubtotal += finalPrice;
         verifiedPriceByCartKey[cartItem.cartKey || cartItem.id] = { finalPrice, dbPrice };
       });
 
-      // ── Re-compute discounts from verified prices ──
       const { discount: verifiedBulkDiscount, rule: verifiedBulkRule } = getBulkDiscount(verifiedSubtotal, cart.length);
       const verifiedAfterBulk = verifiedSubtotal - verifiedBulkDiscount;
 
@@ -136,31 +232,32 @@ const CartPage = ({ cart, setCart }) => {
         }
         verifiedVoucherDiscount = calculateDiscount(vData, verifiedAfterBulk);
         voucherRef = doc(db, 'vouchers', voucher.id);
-        voucherDataForTx = vData; // save for re-check INSIDE transaction
+        voucherDataForTx = vData;
       }
 
       const verifiedTotal = Math.round(Math.max(0, verifiedSubtotal - verifiedBulkDiscount - verifiedVoucherDiscount));
+      const txVerifiedSoldCount = {};
 
-      // ── Closure: capture tx-verified soldCount to fix credential-slot race condition ──
-      // Without this, two simultaneous buyers could read the same pre-tx soldCount
-      // and both receive the same credential slot.
-      const txVerifiedSoldCount = {}; // { [accountId]: soldCount at moment of tx lock }
-
-      // ── Atomic Firestore Transaction ──
+      // ══════════════════════════════════════════════
+      // ATOMIC TRANSACTION — ALL READS BEFORE ALL WRITES
+      // ══════════════════════════════════════════════
       await runTransaction(db, async (transaction) => {
+        // ── PHASE 1: ALL READS ──────────────────────
         const userRef  = doc(db, 'users', currentUser.uid);
         const userSnap = await transaction.get(userRef);
+        const txReads  = await Promise.all(accountRefs.map(ref => transaction.get(ref)));
+        const txSnapByDocId = {};
+        uniqueIds.forEach((id, idx) => { txSnapByDocId[id] = txReads[idx]; });
+        let vSnap = null;
+        if (voucherRef) vSnap = await transaction.get(voucherRef);
+        // ── (no more reads after this line) ────────
+
+        // ── PHASE 2: VALIDATION ─────────────────────
         if (!userSnap.exists()) throw new Error('Tài khoản người dùng không tồn tại.');
         const currentBalance = userSnap.data().balance || 0;
         if (currentBalance < verifiedTotal)
           throw new Error(`Số dư không đủ. Hiện có: ${currentBalance.toLocaleString('vi-VN')}đ, cần: ${verifiedTotal.toLocaleString('vi-VN')}đ`);
 
-        // Re-read each unique doc inside transaction
-        const txReads = await Promise.all(accountRefs.map(ref => transaction.get(ref)));
-        const txSnapByDocId = {};
-        uniqueIds.forEach((id, idx) => { txSnapByDocId[id] = txReads[idx]; });
-
-        // Final stock check + capture verified soldCount via closure
         for (const id of uniqueIds) {
           const snap = txSnapByDocId[id];
           const cartItem = cart.find(x => x.id === id);
@@ -171,168 +268,93 @@ const CartPage = ({ cart, setCart }) => {
           const wantUnits = cart.filter(x => x.id === id).length;
           if (sd.status !== 'available' || sc + wantUnits > qt)
             throw new Error(`Tài khoản "${cartItem?.title}" vừa hết hàng.`);
-          // ✅ Capture atomically-locked soldCount for credential assignment below
           txVerifiedSoldCount[id] = sc;
         }
 
-        // Deduct balance
+        if (vSnap !== null) {
+          if (!vSnap.exists() || !vSnap.data().active) throw new Error('Voucher không còn hợp lệ.');
+          const vLive = vSnap.data();
+          if (vLive.usedCount >= vLive.usageLimit) throw new Error('Voucher vừa hết lượt sử dụng.');
+          const usedTimes = (vLive.usedBy || []).filter(e => e === currentUser.email).length;
+          if (usedTimes >= (vLive.perUserLimit || 1)) throw new Error('Bạn đã dùng hết lượt voucher này.');
+        }
+
+        // ── PHASE 3: ALL WRITES ─────────────────────
         transaction.update(userRef, { balance: currentBalance - verifiedTotal });
 
-        // Increment soldCount per doc (by number of units being bought)
         for (const id of uniqueIds) {
-          const snap = txSnapByDocId[id];
-          const d = snap.data();
+          const d = txSnapByDocId[id].data();
           const unitsForThisDoc = cart.filter(x => x.id === id).length;
           const newSoldCount = (d.soldCount || 0) + unitsForThisDoc;
-          const qty = d.quantity || 1;
           const updates = { soldCount: newSoldCount };
-          if (newSoldCount >= qty) updates.status = 'sold';
+          if (newSoldCount >= (d.quantity || 1)) updates.status = 'sold';
           transaction.update(accountRefs[uniqueIds.indexOf(id)], updates);
         }
 
-        // ✅ FIX D-12: Re-read voucher INSIDE transaction to prevent race condition double-use
-        // Two simultaneous checkouts: both pass pre-tx check, but only one wins atomically here
-        if (voucherRef && voucherDataForTx) {
-          const vSnap = await transaction.get(voucherRef);
-          if (!vSnap.exists() || !vSnap.data().active)
-            throw new Error('Voucher không còn hợp lệ.');
-          const vLive = vSnap.data();
-          if (vLive.usedCount >= vLive.usageLimit)
-            throw new Error('Voucher vừa hết lượt sử dụng. Vui lòng thử lại không dùng voucher.');
-          // Per-user limit check inside tx
-          const perUser = vLive.perUserLimit || 1;
-          const usedTimes = (vLive.usedBy || []).filter(e => e === currentUser.email).length;
-          if (usedTimes >= perUser)
-            throw new Error('Bạn đã dùng hết lượt voucher này.');
-          transaction.update(voucherRef, getVoucherUpdatePayload(currentUser.email));
-        }
+        if (vSnap !== null) transaction.update(voucherRef, getVoucherUpdatePayload(currentUser.email));
       });
 
-      // ── Build verifiedItems AFTER transaction using tx-verified soldCount ──
-      // This guarantees credential slot assignment matches the atomically-committed soldCount,
-      // eliminating the race condition where concurrent buyers get the same slot.
+      // Build verified items for order record
       const unitOffsetByDoc = {};
       uniqueIds.forEach(id => { unitOffsetByDoc[id] = 0; });
       const verifiedItems = cart.map((cartItem) => {
         const dbData = snapByDocId[cartItem.id].data();
         const { finalPrice, dbPrice } = verifiedPriceByCartKey[cartItem.cartKey || cartItem.id];
-
-        // Use tx-verified soldCount (not stale pre-tx value)
         const baseSoldCount = txVerifiedSoldCount[cartItem.id] ?? (dbData.soldCount || 0);
         const offset = unitOffsetByDoc[cartItem.id];
         const slotIndex = baseSoldCount + offset;
         unitOffsetByDoc[cartItem.id]++;
         const creds = dbData.credentials;
         const slot = (creds && creds.length > slotIndex) ? creds[slotIndex] : {
-          loginUsername:    dbData.loginUsername    || '',
-          loginPassword:    dbData.loginPassword    || '',
-          loginEmail:       dbData.loginEmail       || '',
-          loginNote:        dbData.loginNote        || '',
+          loginUsername: dbData.loginUsername || '', loginPassword: dbData.loginPassword || '',
+          loginEmail: dbData.loginEmail || '', loginNote: dbData.loginNote || '',
           attachmentContent: dbData.attachmentContent || null,
-          attachmentUrl:    dbData.attachmentUrl    || null,
-          attachmentName:   dbData.attachmentName   || null,
+          attachmentUrl: dbData.attachmentUrl || null, attachmentName: dbData.attachmentName || null,
         };
         return {
-          ...cartItem,
-          verifiedPrice:    finalPrice,
-          dbPrice,
-          loginUsername:    slot.loginUsername    || '',
-          loginPassword:    slot.loginPassword    || '',
-          loginEmail:       slot.loginEmail       || '',
-          loginNote:        slot.loginNote        || '',
+          ...cartItem, verifiedPrice: finalPrice, dbPrice, _slotIndex: slotIndex,
+          loginUsername: slot.loginUsername || '', loginPassword: slot.loginPassword || '',
+          loginEmail: slot.loginEmail || '', loginNote: slot.loginNote || '',
           attachmentContent: slot.attachmentContent || null,
-          attachmentUrl:    slot.attachmentUrl    || null,
-          attachmentName:   slot.attachmentName   || null,
-          _slotIndex:       slotIndex,
+          attachmentUrl: slot.attachmentUrl || null, attachmentName: slot.attachmentName || null,
         };
       });
 
-      // ── Write order record ──
       const idempotencyKey = currentUser.uid + '_' + Math.floor(Date.now() / 10000);
+      const orderData = {
+        idempotencyKey,
+        userId: currentUser.uid, userEmail: currentUser.email,
+        userName: userProfile?.displayName || currentUser.email,
+        items: verifiedItems.map(i => ({
+          id: i.id, title: i.title, price: i.verifiedPrice, originalPrice: i.dbPrice,
+          gameType: i.gameType, images: i.images || [],
+          loginUsername: i.loginUsername || '', loginPassword: i.loginPassword || '',
+          loginEmail: i.loginEmail || '', loginNote: i.loginNote || '',
+          attachmentContent: i.attachmentContent || null,
+          attachmentUrl: i.attachmentUrl || null, attachmentName: i.attachmentName || null,
+        })),
+        subtotal: verifiedSubtotal, bulkDiscount: verifiedBulkDiscount,
+        bulkRuleId: verifiedBulkRule?.id || null,
+        voucherDiscount: verifiedVoucherDiscount,
+        discount: verifiedBulkDiscount + verifiedVoucherDiscount,
+        voucherCode: voucher?.code || null, total: verifiedTotal,
+        paymentMethod: 'balance', status: 'completed', createdAt: serverTimestamp(),
+      };
+
       try {
-        await addDoc(collection(db, 'orders'), {
-          idempotencyKey,
-          userId:    currentUser.uid,
-          userEmail: currentUser.email,
-          userName:  userProfile?.displayName || currentUser.email,
-          items: verifiedItems.map(i => ({
-            id:               i.id,
-            title:            i.title,
-            price:            i.verifiedPrice,
-            originalPrice:    i.dbPrice,
-            gameType:         i.gameType,
-            images:           i.images || [],
-            loginUsername:    i.loginUsername    || '',
-            loginPassword:    i.loginPassword    || '',
-            loginEmail:       i.loginEmail       || '',
-            loginNote:        i.loginNote        || '',
-            attachmentContent: i.attachmentContent || null,
-            attachmentUrl:    i.attachmentUrl    || null,   // legacy
-            attachmentName:   i.attachmentName   || null,
-          })),
-          subtotal:       verifiedSubtotal,
-          bulkDiscount:   verifiedBulkDiscount,
-          bulkRuleId:     verifiedBulkRule?.id || null,
-          voucherDiscount: verifiedVoucherDiscount,
-          discount:       verifiedBulkDiscount + verifiedVoucherDiscount,
-          voucherCode:    voucher?.code || null,
-          total:          verifiedTotal,
-          paymentMethod:  'balance',
-          status:         'completed',
-          createdAt:      serverTimestamp(),
-        });
+        await addDoc(collection(db, 'orders'), orderData);
       } catch (orderErr) {
-        // FIX B-13: Retry order write up to 3 times — network blip should not cause data loss
         console.error('‼️ Order write failed (attempt 1):', orderErr);
-        let orderSaved = false;
+        let saved = false;
         for (let retry = 0; retry < 3; retry++) {
           await new Promise(r => setTimeout(r, 800 * (retry + 1)));
-          try {
-            await addDoc(collection(db, 'orders'), {
-              idempotencyKey,
-              userId:    currentUser.uid,
-              userEmail: currentUser.email,
-              userName:  userProfile?.displayName || currentUser.email,
-              items: verifiedItems.map(i => ({
-                id:               i.id,
-                title:            i.title,
-                price:            i.verifiedPrice,
-                originalPrice:    i.dbPrice,
-                gameType:         i.gameType,
-                images:           i.images || [],
-                loginUsername:    i.loginUsername    || '',
-                loginPassword:    i.loginPassword    || '',
-                loginEmail:       i.loginEmail       || '',
-                loginNote:        i.loginNote        || '',
-                attachmentContent: i.attachmentContent || null,
-                attachmentUrl:    i.attachmentUrl    || null,
-                attachmentName:   i.attachmentName   || null,
-              })),
-              subtotal:        verifiedSubtotal,
-              bulkDiscount:    verifiedBulkDiscount,
-              bulkRuleId:      verifiedBulkRule?.id || null,
-              voucherDiscount: verifiedVoucherDiscount,
-              discount:        verifiedBulkDiscount + verifiedVoucherDiscount,
-              voucherCode:     voucher?.code || null,
-              total:           verifiedTotal,
-              paymentMethod:   'balance',
-              status:          'completed',
-              createdAt:       serverTimestamp(),
-              _retryCount:     retry + 1,
-            });
-            orderSaved = true;
-            // Order saved on retry
-            break;
-          } catch (retryErr) {
-            console.error(`‼️ Order write retry ${retry + 1} failed:`, retryErr);
-          }
+          try { await addDoc(collection(db, 'orders'), { ...orderData, _retryCount: retry + 1 }); saved = true; break; }
+          catch (e) { console.error(`‼️ Retry ${retry + 1} failed:`, e); }
         }
-        if (!orderSaved) {
-          toast.error(
-            `⚠️ Thanh toán thành công nhưng không lưu được đơn hàng. Liên hệ admin với mã: ${idempotencyKey}`,
-            { duration: 15000, style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '2px solid var(--danger)' } }
-          );
-        }
+        if (!saved) toast.error(
+          `⚠️ Thanh toán thành công nhưng không lưu được đơn hàng. Liên hệ admin: ${idempotencyKey}`,
+          { duration: 15000, style: { background:'var(--bg-card)', color:'var(--text-primary)', border:'2px solid var(--danger)' } }
+        );
       }
 
       await fetchUserProfile(currentUser.uid);
@@ -349,15 +371,16 @@ const CartPage = ({ cart, setCart }) => {
     }
   }, [cart, currentUser, userProfile, voucher, getBulkDiscount, calculateDiscount, clearVoucher, fetchUserProfile]);
 
+  // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <div className="cart-page page-wrapper">
       <div className="container">
         <h1 className="section-title" style={{ marginBottom: '28px' }}>
           <ShoppingCart size={26} /> Giỏ hàng
-          {cart.length > 0 && <span className="badge badge-accent" style={{ marginLeft: '10px' }}>{cart.length}</span>}
+          {totalItems > 0 && <span className="badge badge-accent" style={{ marginLeft: '10px' }}>{totalItems}</span>}
         </h1>
 
-        {cart.length === 0 ? (
+        {totalItems === 0 ? (
           <div className="empty-cart">
             <div className="empty-cart-icon">🛒</div>
             <h2>Giỏ hàng trống</h2>
@@ -367,113 +390,190 @@ const CartPage = ({ cart, setCart }) => {
         ) : (
           <div className="cart-layout">
             <div className="cart-items">
-              {(() => {
-                // Count slots per account to show "Slot X/Y" label
-                const slotIndex = {};
-                const slotCount = {};
-                cart.forEach(item => { slotCount[item.id] = (slotCount[item.id] || 0) + 1; });
-                return cart.map(item => {
-                  slotIndex[item.id] = (slotIndex[item.id] || 0) + 1;
-                  const multiSlot = slotCount[item.id] > 1;
-                  return (
-                    <div key={item.cartKey || item.id} className="cart-item card">
-                      <div className="cart-item-img">
-                        {item.images?.[0] ? <img src={item.images[0]} alt="" /> : <Package size={24} style={{ color: 'var(--text-muted)' }} />}
-                      </div>
-                      <div className="cart-item-info">
-                        <div className="cart-item-title">{item.title}</div>
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
-                          <span className="badge badge-accent">{item.gameType}</span>
-                          {item.salePrice && item.salePrice < item.price && (
-                            <span style={{ display:'inline-flex', alignItems:'center', gap:3, fontSize:10,
-                              background:'linear-gradient(135deg,#ff4757,#ff6b35)', color:'#fff',
-                              borderRadius:4, padding:'1px 6px', fontWeight:800 }}>
-                              <Flame size={8} /> FLASH SALE
-                            </span>
-                          )}
-                          {multiSlot && (
-                            <span className="badge" style={{ background: 'rgba(46,213,115,0.15)', color: '#2ed573', border: '1px solid rgba(46,213,115,0.3)' }}>
-                              Nick {slotIndex[item.id]}/{slotCount[item.id]}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="cart-item-price">
-                        {item.salePrice && item.salePrice < item.price ? (
-                          <div style={{ textAlign: 'right' }}>
-                            <div style={{ textDecoration: 'line-through', color: 'var(--text-muted)', fontSize: 12 }}>{item.price?.toLocaleString('vi-VN')}đ</div>
-                            <div style={{ color: 'var(--danger)', fontWeight: 700 }}>{item.salePrice?.toLocaleString('vi-VN')}đ</div>
-                          </div>
-                        ) : <span>{item.price?.toLocaleString('vi-VN')}đ</span>}
-                      </div>
-                      <button className="btn btn-ghost btn-sm" onClick={() => removeItem(item.cartKey || item.id)} style={{ color: 'var(--danger)' }}><Trash2 size={15} /></button>
-                    </div>
-                  );
-                });
-              })()}
+              {/* Flash sale expiry banner */}
+              {flashExpired && (
+                <div className="cart-alert-banner cart-alert-warning">
+                  <Clock size={15} />
+                  <span>Flash Sale đã kết thúc — giá đã cập nhật về giá gốc.</span>
+                </div>
+              )}
 
-              {/* Voucher */}
+              {/* Grouped cart rows */}
+              {grouped.map(group => {
+                const hasSale  = group.salePrice && group.salePrice < group.price;
+                const unitPrice = hasSale ? group.salePrice : group.price;
+                const groupTotal = unitPrice * group.qty;
+                const maxStock = (group.quantity || 1) - (group.soldCount || 0);
+                const canIncrease = group.qty < maxStock;
+
+                return (
+                  <div key={group.id} className="cart-item card">
+                    {/* Thumbnail */}
+                    <div className="cart-item-img">
+                      {group.images?.[0]
+                        ? <img src={group.images[0]} alt="" />
+                        : <Package size={22} style={{ color: 'var(--text-muted)' }} />}
+                    </div>
+
+                    {/* Info */}
+                    <div className="cart-item-info">
+                      <div className="cart-item-title">{group.title}</div>
+                      <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginTop:4, alignItems:'center' }}>
+                        <span className="badge badge-accent">{group.gameType}</span>
+                        {group.rank && (
+                          <span style={{ fontSize:11, color:'var(--gold)', fontWeight:600 }}>◆ {group.rank}</span>
+                        )}
+                        {hasSale && (
+                          <span className="flash-badge-small">
+                            <Flame size={8} /> FLASH SALE
+                          </span>
+                        )}
+                      </div>
+                      {group.qty > 1 && (
+                        <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:3 }}>
+                          {unitPrice.toLocaleString('vi-VN')}đ / nick
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Qty stepper */}
+                    <div className="qty-stepper">
+                      <button
+                        className="qty-btn qty-btn-minus"
+                        onClick={() => decreaseQty(group.id)}
+                        disabled={group.qty <= 1}
+                        aria-label="Giảm"
+                      >
+                        <span>−</span>
+                      </button>
+                      <span className="qty-display">{group.qty}</span>
+                      <button
+                        className={`qty-btn qty-btn-plus${!canIncrease ? ' qty-btn-maxed' : ''}`}
+                        onClick={() => increaseQty(group.id)}
+                        disabled={!canIncrease}
+                        aria-label="Tăng"
+                        title={!canIncrease ? `Còn tối đa ${maxStock} nick` : ''}
+                      >
+                        <span>+</span>
+                      </button>
+                    </div>
+
+                    {/* Price */}
+                    <div className="cart-item-price">
+                      {hasSale ? (
+                        <div style={{ textAlign:'right' }}>
+                          <div style={{ textDecoration:'line-through', color:'var(--text-muted)', fontSize:11, lineHeight:1.2 }}>
+                            {(group.price * group.qty).toLocaleString('vi-VN')}đ
+                          </div>
+                          <div style={{ color:'#ff6b6b', fontWeight:700 }}>
+                            {groupTotal.toLocaleString('vi-VN')}đ
+                          </div>
+                        </div>
+                      ) : (
+                        <span>{groupTotal.toLocaleString('vi-VN')}đ</span>
+                      )}
+                    </div>
+
+                    {/* Remove */}
+                    <button
+                      className="cart-remove-btn"
+                      onClick={() => removeGroup(group.id)}
+                      title="Xóa khỏi giỏ"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                );
+              })}
+
+              {/* Voucher box */}
               <div className="voucher-box card">
-                <div className="voucher-header"><Tag size={16} style={{ color: 'var(--gold)' }} /><span>Mã giảm giá</span></div>
+                <div className="voucher-header">
+                  <Tag size={16} style={{ color: 'var(--gold)' }} />
+                  <span>Mã giảm giá</span>
+                </div>
                 {voucher ? (
                   <div className="voucher-applied">
                     <CheckCircle size={16} style={{ color: 'var(--success)' }} />
                     <div>
                       <div className="voucher-code-applied">{voucher.code}</div>
-                      <div className="voucher-desc">{voucher.description || `Giảm ${voucher.type === 'percent' ? voucher.value + '%' : voucher.value.toLocaleString('vi-VN') + 'đ'}`}</div>
+                      <div className="voucher-desc">
+                        {voucher.description || `Giảm ${voucher.type === 'percent' ? voucher.value + '%' : voucher.value.toLocaleString('vi-VN') + 'đ'}`}
+                      </div>
                     </div>
-                    <button className="btn btn-ghost btn-sm" onClick={clearVoucher} style={{ color: 'var(--danger)', marginLeft: 'auto' }}><X size={14} /></button>
+                    <button className="btn btn-ghost btn-sm" onClick={clearVoucher} style={{ color:'var(--danger)', marginLeft:'auto' }}>
+                      <X size={14} />
+                    </button>
                   </div>
                 ) : (
                   <div className="voucher-input-row">
-                    <input className="form-input voucher-input" placeholder="Nhập mã voucher..."
-                      value={voucherCode} onChange={e => setVoucherCode(e.target.value.toUpperCase())}
-                      onKeyDown={e => e.key === 'Enter' && handleApplyVoucher()} />
-                    <button className="btn btn-accent2 btn-sm" onClick={handleApplyVoucher} disabled={voucherLoading || !voucherCode}>
+                    <input
+                      className="form-input voucher-input"
+                      placeholder="Nhập mã voucher..."
+                      value={voucherCode}
+                      onChange={e => setVoucherCode(e.target.value.toUpperCase())}
+                      onKeyDown={e => e.key === 'Enter' && handleApplyVoucher()}
+                    />
+                    <button className="btn btn-accent2 btn-sm" onClick={handleApplyVoucher}
+                      disabled={voucherLoading || !voucherCode}>
                       {voucherLoading ? '...' : 'Áp dụng'}
                     </button>
                   </div>
                 )}
                 {voucherError && <div className="voucher-error"><AlertCircle size={13} /> {voucherError}</div>}
+                {voucherExpired && !voucher && (
+                  <div className="voucher-error"><AlertCircle size={13} /> Voucher vừa hết hiệu lực và đã bị gỡ.</div>
+                )}
               </div>
             </div>
 
+            {/* Sidebar summary */}
             <div className="cart-summary">
               <div className="balance-card card">
-                <div className="balance-card-header"><Wallet size={18} style={{ color: 'var(--gold)' }} /><span>Số dư tài khoản</span></div>
-                <div className="balance-amount" style={{ color: insufficient ? 'var(--danger)' : 'var(--gold)' }}>{balance.toLocaleString('vi-VN')}đ</div>
-                {insufficient && <Link to="/topup" className="btn btn-ghost btn-sm w-full" style={{ marginTop: '10px', color: 'var(--accent)', borderColor: 'var(--accent)' }}>+ Nạp thêm tiền</Link>}
+                <div className="balance-card-header">
+                  <Wallet size={18} style={{ color:'var(--gold)' }} />
+                  <span>Số dư tài khoản</span>
+                </div>
+                <div className="balance-amount" style={{ color: insufficient ? 'var(--danger)' : 'var(--gold)' }}>
+                  {balance.toLocaleString('vi-VN')}đ
+                </div>
+                {insufficient && (
+                  <Link to="/topup" className="btn btn-ghost btn-sm w-full"
+                    style={{ marginTop:'10px', color:'var(--accent)', borderColor:'var(--accent)' }}>
+                    + Nạp thêm tiền
+                  </Link>
+                )}
               </div>
 
               <div className="card">
                 <h2 className="summary-title">Tóm tắt đơn hàng</h2>
                 <div className="summary-lines">
-                  {(() => {
-                    const SHOW = 5;
-                    const showAll = cart.length <= SHOW;
-                    const visible = showAll ? cart : cart.slice(0, SHOW);
-                    return (<>
-                      {visible.map(item => (
-                        <div key={item.cartKey || item.id} className="summary-line">
-                          <span className="summary-line-name">{item.title}</span>
-                          <span className="summary-line-price">{(item.salePrice || item.price)?.toLocaleString('vi-VN')}đ</span>
-                        </div>
-                      ))}
-                      {!showAll && (
-                        <div className="summary-line" style={{ color:'var(--text-muted)', fontSize:12, fontStyle:'italic' }}>
-                          <span>... và {cart.length - SHOW} sản phẩm khác</span>
-                        </div>
-                      )}
-                    </>);
-                  })()}
+                  {grouped.slice(0, 5).map(g => {
+                    const up = (g.salePrice && g.salePrice < g.price) ? g.salePrice : g.price;
+                    return (
+                      <div key={g.id} className="summary-line">
+                        <span className="summary-line-name">
+                          {g.title}
+                          {g.qty > 1 && <span style={{ color:'var(--text-muted)', marginLeft:4 }}>×{g.qty}</span>}
+                        </span>
+                        <span className="summary-line-price">{(up * g.qty).toLocaleString('vi-VN')}đ</span>
+                      </div>
+                    );
+                  })}
+                  {grouped.length > 5 && (
+                    <div className="summary-line" style={{ color:'var(--text-muted)', fontSize:12, fontStyle:'italic' }}>
+                      <span>... và {grouped.length - 5} loại khác</span>
+                    </div>
+                  )}
                 </div>
                 <hr className="divider" />
-                <div className="summary-line" style={{ color: 'var(--text-secondary)' }}>
-                  <span>Tạm tính</span><span>{subtotal.toLocaleString('vi-VN')}đ</span>
+                <div className="summary-line" style={{ color:'var(--text-secondary)' }}>
+                  <span>Tạm tính ({totalItems} nick)</span>
+                  <span>{subtotal.toLocaleString('vi-VN')}đ</span>
                 </div>
                 {bulkDiscountAmt > 0 && (
                   <div className="summary-line summary-discount">
-                    <span><Layers size={12} /> Mua nhiều ({cart.length} acc · {bulkRule?.discountPct}%)</span>
+                    <span><Layers size={12} /> Mua nhiều ({totalItems} acc · {bulkRule?.discountPct}%)</span>
                     <span>-{Math.round(bulkDiscountAmt).toLocaleString('vi-VN')}đ</span>
                   </div>
                 )}
@@ -492,31 +592,34 @@ const CartPage = ({ cart, setCart }) => {
                   <div className="insufficient-warning">
                     <AlertCircle size={15} />
                     <div>
-                      <div style={{ fontWeight: 600 }}>Số dư không đủ</div>
-                      <div style={{ fontSize: '12px' }}>Cần nạp thêm: <strong style={{ color: 'var(--danger)' }}>{Math.round(total - balance).toLocaleString('vi-VN')}đ</strong></div>
+                      <div style={{ fontWeight:600 }}>Số dư không đủ</div>
+                      <div style={{ fontSize:'12px' }}>
+                        Cần nạp: <strong style={{ color:'var(--danger)' }}>{Math.round(total - balance).toLocaleString('vi-VN')}đ</strong>
+                      </div>
                     </div>
                   </div>
                 )}
                 <button className="btn btn-primary w-full btn-lg" onClick={handleCheckout}
-                  disabled={loading || insufficient} style={{ marginTop: '16px' }}>
+                  disabled={loading || insufficient} style={{ marginTop:'16px' }}>
                   <Zap size={18} />
                   {loading ? 'Đang xử lý...' : insufficient ? 'Số dư không đủ' : 'Thanh toán bằng số dư'}
                   {!loading && !insufficient && <ArrowRight size={16} />}
                 </button>
                 {insufficient && (
-                  <Link to="/topup" className="btn btn-accent2 w-full btn-lg" style={{ marginTop: '10px', display: 'flex', justifyContent: 'center' }}>
+                  <Link to="/topup" className="btn btn-accent2 w-full btn-lg"
+                    style={{ marginTop:'10px', display:'flex', justifyContent:'center' }}>
                     <Wallet size={18} /> Nạp tiền ngay
                   </Link>
                 )}
               </div>
 
-              <div className="card" style={{ padding: '16px' }}>
+              <div className="card" style={{ padding:'16px' }}>
                 {[
-                  { icon: <Shield size={15} style={{ color: 'var(--success)' }} />, text: 'Bảo hành 24h sau mua' },
-                  { icon: <Zap size={15} style={{ color: 'var(--accent)' }} />, text: 'Nhận thông tin tức thì' },
-                  { icon: <Wallet size={15} style={{ color: 'var(--gold)' }} />, text: 'Hoàn tiền nếu có lỗi' },
+                  { icon: <Shield size={15} style={{ color:'var(--success)' }} />, text: 'Bảo hành 24h sau mua' },
+                  { icon: <Zap size={15} style={{ color:'var(--accent)' }} />,    text: 'Nhận thông tin tức thì' },
+                  { icon: <Wallet size={15} style={{ color:'var(--gold)' }} />,   text: 'Hoàn tiền nếu có lỗi' },
                 ].map((item, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', color: 'var(--text-secondary)', padding: '6px 0' }}>
+                  <div key={i} style={{ display:'flex', alignItems:'center', gap:'10px', fontSize:'13px', color:'var(--text-secondary)', padding:'6px 0' }}>
                     {item.icon} {item.text}
                   </div>
                 ))}

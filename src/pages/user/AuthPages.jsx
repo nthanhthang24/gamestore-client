@@ -4,12 +4,11 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Eye, EyeOff, Zap, Mail, Lock, User, AlertCircle } from 'lucide-react';
 import { sendPasswordResetEmail } from 'firebase/auth';
-import { auth } from '../../firebase/config';
 import {
   collection, query, where, getDocs, addDoc, updateDoc,
   doc, serverTimestamp, increment
 } from 'firebase/firestore';
-import { db } from '../../firebase/config';
+import { auth, db } from '../../firebase/config';
 import toast from 'react-hot-toast';
 import './AuthPages.css';
 
