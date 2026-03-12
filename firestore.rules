@@ -38,7 +38,6 @@ service cloud.firestore {
     match /accounts/{accountId}/credentials/{docId} {
       allow read, write: if isAdmin();
     }
-    }
 
     // ── Users ──────────────────────────────────────────────────────────
     // FIX VULN-01,02: REMOVE isOwner balance increase — only server/admin can increase balance
@@ -152,10 +151,11 @@ service cloud.firestore {
     match /serviceOrders/{id} {
       allow read: if isAuthenticated() &&
         (resource.data.userId == request.auth.uid || isAdmin());
+      // ✅ FIX: amount >= 0 to allow free/contact-price services (amount=0 is valid)
       allow create: if isAuthenticated()
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.status == 'pending'
-        && request.resource.data.get('amount', 0) > 0;
+        && request.resource.data.get('amount', 0) >= 0;
       allow update: if isAdmin();
       allow delete: if false;
     }

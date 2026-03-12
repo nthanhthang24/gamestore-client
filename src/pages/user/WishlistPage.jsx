@@ -7,15 +7,18 @@ import { useAuth } from '../../context/AuthContext';
 import { useWishlist } from '../../hooks/useWishlist';
 import { useSEO } from '../../hooks/useSEO';
 import AccountCard from '../../components/shared/AccountCard';
+import { useFlashSale } from '../../hooks/useFlashSale';
 import { Heart, ShoppingBag } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const TS = { style:{ background:'var(--bg-card)', color:'var(--text-primary)', border:'1px solid var(--border)' }};
 
-const WishlistPage = ({ onAddToCart }) => {
+const WishlistPage = ({ onAddToCart, cart = [] }) => {
   const { currentUser } = useAuth();
   const { wishlist, toggle, isWishlisted } = useWishlist(currentUser);
   const [accounts, setAccounts] = useState([]);
+
+  const { activeFlashSale, getSalePrice, countdown } = useFlashSale();
   const [loading, setLoading]   = useState(true);
 
   // ✅ Realtime: remove sold accounts from wishlist display
@@ -85,10 +88,12 @@ const WishlistPage = ({ onAddToCart }) => {
             {accounts.map(acc => (
               <AccountCard
                 key={acc.id}
-                account={acc}
+                account={(() => { const sp = activeFlashSale ? getSalePrice(acc.price, acc.gameType) : null; return sp && sp < acc.price ? {...acc, salePrice: sp} : acc; })()}
                 onAddToCart={onAddToCart}
                 isWishlisted={isWishlisted(acc.id)}
                 onToggleWishlist={handleToggleWishlist}
+                flashCountdown={countdown}
+                isInCart={cart.some(c => c.id === acc.id)}
               />
             ))}
           </div>

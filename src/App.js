@@ -443,7 +443,7 @@ const AdminUsersPage = () => {
   );
 };
 const AdminSettingsPage = () => {
-  const [settings, setSettings] = React.useState({ siteName: 'GameStore VN', supportEmail: 'support@gamestore.vn', maintenanceMode: false, maxCartItems: 20, minTopupAmount: 10000, maxTopupAmount: 50000000 });
+  const [settings, setSettings] = React.useState({ siteName: 'GameStore VN', supportEmail: 'support@gamestore.vn', maintenanceMode: false, maxCartItems: 20, minTopupAmount: 10000, maxTopupAmount: 50000000, referralCommissionPct: 2, referralMinTopup: 50000, referralNewUserBonus: 10000 });
   const [saved, setSaved] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
 
@@ -519,6 +519,38 @@ const AdminSettingsPage = () => {
         <Row label="Nạp tiền tối đa" desc="Số tiền tối đa mỗi lần nạp">
           <input type="number" className="form-input" value={settings.maxTopupAmount} onChange={e => setSettings(s => ({ ...s, maxTopupAmount: Number(e.target.value) }))} style={{ width: 180 }} />
         </Row>
+      </div>
+
+      {/* ── Hoa hồng Giới thiệu ─────────────────────────────── */}
+      <div className="card" style={{ padding: 24, marginBottom: 20 }}>
+        <h3 style={{ marginBottom: 20, color: 'var(--accent)' }}>🎁 Cấu hình Giới thiệu bạn bè</h3>
+        <Row label="Hoa hồng người giới thiệu (%)" desc="% tiền nạp lần đầu trả cho người giới thiệu (ví dụ: 2 = 2%)">
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <input type="number" className="form-input" style={{ width:100 }}
+              value={settings.referralCommissionPct ?? 2}
+              onChange={e => setSettings(s => ({ ...s, referralCommissionPct: Math.min(50, Math.max(0, Number(e.target.value))) }))}
+              min="0" max="50" step="0.5" />
+            <span style={{ fontSize:13, color:'var(--text-muted)' }}>%</span>
+          </div>
+        </Row>
+        <Row label="Nạp tối thiểu để kích hoạt hoa hồng" desc="Lần nạp đầu phải ≥ mức này mới tính hoa hồng">
+          <input type="number" className="form-input" style={{ width:160 }}
+            value={settings.referralMinTopup ?? 50000}
+            onChange={e => setSettings(s => ({ ...s, referralMinTopup: Math.max(0, Number(e.target.value)) }))}
+            min="0" step="1000" />
+        </Row>
+        <Row label="Thưởng cho người được giới thiệu" desc="Người mới nhận thêm khi đăng ký qua link">
+          <input type="number" className="form-input" style={{ width:160 }}
+            value={settings.referralNewUserBonus ?? 10000}
+            onChange={e => setSettings(s => ({ ...s, referralNewUserBonus: Math.max(0, Number(e.target.value)) }))}
+            min="0" step="1000" />
+        </Row>
+        <div style={{ marginTop:12, padding:'10px 14px', borderRadius:8, background:'var(--accent-dim)', fontSize:12, color:'var(--text-secondary)' }}>
+          💡 Ví dụ: bạn bè nạp <strong>200.000đ</strong> lần đầu → người giới thiệu nhận{' '}
+          <strong style={{ color:'var(--gold)' }}>
+            {Math.round((settings.referralCommissionPct ?? 2) / 100 * 200000).toLocaleString('vi-VN')}đ
+          </strong> (= {settings.referralCommissionPct ?? 2}%)
+        </div>
       </div>
 
       {/* ── Theme & Màu sắc ─────────────────────────────────── */}
@@ -633,32 +665,93 @@ const AdminSettingsPage = () => {
           </div>
           <div style={{ display:'flex', gap:10, flexWrap:'wrap' }}>
             {[
-              { name:'🌊 Cyber Blue (Mặc định)', accent:'#00d4ff', accent2:'#ff6b35', bg:'#0a0e1a', card:'#131929', gold:'#ffd700' },
-              { name:'💜 Neon Purple',           accent:'#a855f7', accent2:'#ec4899', bg:'#0d0a1a', card:'#16102a', gold:'#ffd700' },
-              { name:'🟢 Matrix Green',           accent:'#00ff88', accent2:'#00cc6a', bg:'#060f0a', card:'#0d1a12', gold:'#88ff00' },
-              { name:'🔴 Crimson Dark',           accent:'#ff4757', accent2:'#ff6b35', bg:'#0f0a0a', card:'#1a1010', gold:'#ffd700' },
-              { name:'☀️ Light Mode',              accent:'#2563eb', accent2:'#f59e0b', bg:'#f8fafc', card:'#ffffff', gold:'#d97706' },
-            ].map(preset => (
-              <button key={preset.name}
-                onClick={() => setSettings(s => ({
-                  ...s,
-                  themeAccent:    preset.accent,
-                  themeAccent2:   preset.accent2,
-                  themeBgPrimary: preset.bg,
-                  themeBgCard:    preset.card,
-                  themeGold:      preset.gold,
-                }))}
-                style={{
-                  padding:'8px 14px', borderRadius:8, cursor:'pointer', fontSize:12, fontWeight:600,
-                  border:'1px solid var(--border)', background:'var(--bg-card)',
-                  color:'var(--text-primary)', transition:'all .2s',
-                }}
-                onMouseEnter={e => e.currentTarget.style.borderColor = preset.accent}
-                onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
-              >
-                {preset.name}
-              </button>
-            ))}
+              { name:'🌊 Cyber Blue', accent:'#00d4ff', accent2:'#ff6b35', bg:'#0a0e1a', card:'#131929', gold:'#ffd700' },
+              { name:'💜 Neon Purple', accent:'#a855f7', accent2:'#ec4899', bg:'#0d0a1a', card:'#16102a', gold:'#ffd700' },
+              { name:'🟢 Matrix Green', accent:'#00ff88', accent2:'#00cc6a', bg:'#060f0a', card:'#0d1a12', gold:'#88ff00' },
+              { name:'🔴 Crimson Dark', accent:'#ff4757', accent2:'#ff6b35', bg:'#0f0a0a', card:'#1a1010', gold:'#ffd700' },
+              { name:'☀️ Light Mode', accent:'#2563eb', accent2:'#f59e0b', bg:'#f8fafc', card:'#ffffff', gold:'#d97706' },
+            ].map(preset => {
+              // ✅ FIX: highlight the active preset
+              const isActive =
+                (settings.themeAccent    || '#00d4ff').toLowerCase() === preset.accent.toLowerCase() &&
+                (settings.themeAccent2   || '#ff6b35').toLowerCase() === preset.accent2.toLowerCase() &&
+                (settings.themeBgPrimary || '#0a0e1a').toLowerCase() === preset.bg.toLowerCase();
+              return (
+                <button key={preset.name}
+                  onClick={() => setSettings(s => ({
+                    ...s,
+                    themeAccent:    preset.accent,
+                    themeAccent2:   preset.accent2,
+                    themeBgPrimary: preset.bg,
+                    themeBgCard:    preset.card,
+                    themeGold:      preset.gold,
+                  }))}
+                  style={{
+                    padding:'8px 14px', borderRadius:8, cursor:'pointer', fontSize:12, fontWeight:700,
+                    border: isActive ? `2px solid ${preset.accent}` : '1px solid var(--border)',
+                    background: isActive ? `${preset.accent}22` : 'var(--bg-card)',
+                    color: isActive ? preset.accent : 'var(--text-primary)',
+                    transition:'all .2s',
+                    boxShadow: isActive ? `0 0 10px ${preset.accent}44` : 'none',
+                    position: 'relative',
+                  }}
+                >
+                  {isActive && (
+                    <span style={{
+                      position:'absolute', top:-6, right:-6, width:14, height:14,
+                      background: preset.accent, borderRadius:'50%',
+                      fontSize:9, display:'flex', alignItems:'center', justifyContent:'center',
+                      color:'#000', fontWeight:900,
+                    }}>✓</span>
+                  )}
+                  {preset.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ✅ FIX 2: Live theme preview */}
+        <div style={{ marginTop:20, paddingTop:16, borderTop:'1px solid var(--border)' }}>
+          <div style={{ fontSize:13, fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:12 }}>
+            👁 Xem trước
+          </div>
+          <div style={{
+            borderRadius:12, overflow:'hidden', border:'1px solid var(--border)',
+            background: settings.themeBgPrimary || '#0a0e1a',
+          }}>
+            {/* Mini navbar preview */}
+            <div style={{ padding:'10px 16px', background: settings.themeBgCard || '#131929',
+              borderBottom:`1px solid ${(settings.themeAccent||'#00d4ff')}33`,
+              display:'flex', alignItems:'center', gap:12 }}>
+              <span style={{ fontFamily:'Rajdhani', fontWeight:800, fontSize:14,
+                color: settings.themeAccent || '#00d4ff' }}>GAME<span style={{color:'#fff'}}>STORE</span></span>
+              <div style={{ marginLeft:'auto', display:'flex', gap:8 }}>
+                {['Shop','Cart','Profile'].map(l => (
+                  <span key={l} style={{ fontSize:11, color:'rgba(255,255,255,0.6)', cursor:'default' }}>{l}</span>
+                ))}
+              </div>
+            </div>
+            {/* Mini card preview */}
+            <div style={{ padding:16, display:'flex', gap:12 }}>
+              {[1,2].map(i => (
+                <div key={i} style={{ flex:1, borderRadius:8, padding:12,
+                  background: settings.themeBgCard || '#131929',
+                  border:`1px solid ${(settings.themeAccent||'#00d4ff')}33` }}>
+                  <div style={{ width:'100%', height:50, borderRadius:6, marginBottom:10,
+                    background:`linear-gradient(135deg, ${(settings.themeAccent||'#00d4ff')}33, ${(settings.themeAccent2||'#ff6b35')}22)` }} />
+                  <div style={{ height:8, borderRadius:4, background:'rgba(255,255,255,0.1)', marginBottom:6 }} />
+                  <div style={{ height:6, borderRadius:4, background:'rgba(255,255,255,0.06)', marginBottom:10, width:'70%' }} />
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                    <span style={{ fontSize:13, fontWeight:700, color: settings.themeGold||'#ffd700' }}>
+                      500,000đ
+                    </span>
+                    <div style={{ padding:'4px 10px', borderRadius:6, fontSize:11, fontWeight:700,
+                      background: settings.themeAccent||'#00d4ff', color:'#000' }}>Mua</div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -1291,8 +1384,8 @@ const UserLayout = ({ cart, addToCart, setCart }) => (
   <>
     <Navbar cartCount={cart.length} />
     <Routes>
-      <Route path="/" element={<HomePage onAddToCart={addToCart} />} />
-      <Route path="/shop" element={<ShopPage onAddToCart={addToCart} />} />
+      <Route path="/" element={<HomePage onAddToCart={addToCart} cart={cart} />} />
+      <Route path="/shop" element={<ShopPage onAddToCart={addToCart} cart={cart} />} />
       <Route path="/account/:id" element={<AccountDetailPage onAddToCart={addToCart} />} />
       <Route path="/cart" element={<CartPage cart={cart} setCart={setCart} />} />
       <Route path="/topup" element={<ProtectedRoute><TopupPage /></ProtectedRoute>} />
@@ -1428,14 +1521,32 @@ const AppContent = () => {
       try { return JSON.parse(localStorage.getItem('gs_cart') || '[]'); } catch { return []; }
     })();
     if (currentCart.length === 0) return;
-    import('firebase/firestore').then(({ doc, getDoc }) => {
+
+    // ✅ FIX UX-09: Check if flash sale is still active — clear stale salePrice if expired
+    import('firebase/firestore').then(({ doc, getDoc, collection, query, where, getDocs }) => {
       import('./firebase/config').then(async ({ db }) => {
+        // Check active flash sales
+        let activeFlashSaleExists = false;
+        try {
+          const fsSnap = await getDocs(query(collection(db, 'flashSales'), where('active', '==', true)));
+          const now = new Date();
+          activeFlashSaleExists = fsSnap.docs.some(d => {
+            const fs = d.data();
+            const start = fs.startAt?.toDate ? fs.startAt.toDate() : (fs.startAt ? new Date(fs.startAt) : null);
+            const end   = fs.endAt?.toDate   ? fs.endAt.toDate()   : (fs.endAt   ? new Date(fs.endAt)   : null);
+            if (start && now < start) return false;
+            if (end   && now > end)   return false;
+            return true;
+          });
+        } catch (_) {}
+
         const uniqueIds = [...new Set(currentCart.map(item => item.id))];
         const snapMap = {};
         await Promise.allSettled(uniqueIds.map(id =>
           getDoc(doc(db, 'accounts', id)).then(snap => { snapMap[id] = snap; })
         ));
         let changed = false;
+        let salePriceCleared = false;
         const soldCountTracker = {};
         const validCart = currentCart.filter(item => {
           const snap = snapMap[item.id];
@@ -1446,11 +1557,23 @@ const AppContent = () => {
           if (d.status !== 'available' || stockLeft <= 0) { changed = true; return false; }
           soldCountTracker[item.id] = used + 1;
           return true;
+        }).map(item => {
+          // ✅ Clear stale salePrice if no active flash sale
+          if (item.salePrice && !activeFlashSaleExists) {
+            salePriceCleared = true;
+            return { ...item, salePrice: null };
+          }
+          return item;
         });
         if (changed) {
           setCartPersist(validCart);
           import('react-hot-toast').then(({ default: toast }) =>
             toast('Một số sản phẩm trong giỏ đã được bán và đã bị xoá.', { icon: '⚠️', duration: 4000 })
+          );
+        } else if (salePriceCleared) {
+          setCartPersist(validCart);
+          import('react-hot-toast').then(({ default: toast }) =>
+            toast('Flash Sale đã kết thúc. Giá giỏ hàng đã được cập nhật.', { icon: '⏰', duration: 4000 })
           );
         }
       });

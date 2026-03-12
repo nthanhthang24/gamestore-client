@@ -5,20 +5,38 @@ import { collection, query, where, getDocs, onSnapshot, addDoc, doc, getDoc, upd
 import { db } from '../../firebase/config';
 import { useAuth } from '../../context/AuthContext';
 import { useSEO } from '../../hooks/useSEO';
-import { Copy, Gift, Users, TrendingUp, Link as LinkIcon } from 'lucide-react';
+import { Copy, Gift, Users, TrendingUp, Link as LinkIcon, Percent, DollarSign } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const TS = { style:{ background:'var(--bg-card)', color:'var(--text-primary)', border:'1px solid var(--border)' }};
 
-const REFERRAL_BONUS = 20000; // 20k mỗi người giới thiệu
-const REFERRAL_NEW_USER_BONUS = 10000; // 10k cho người được giới thiệu
+// Defaults — overridden by Firestore settings/global
+const DEFAULT_COMMISSION_PCT = 2;
+const DEFAULT_MIN_TOPUP      = 50000;
+const DEFAULT_NEW_USER_BONUS = 10000;
 
 const ReferralPage = () => {
   const { currentUser, userProfile, fetchUserProfile } = useAuth();
   const [referrals, setReferrals] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [refCode, setRefCode]     = useState('');
-  useSEO({ title: 'Giới thiệu bạn bè', description: 'Giới thiệu bạn bè nhận thưởng 20.000đ mỗi người' });
+  // ✅ Load referral config từ settings/global
+  const [commissionPct, setCommissionPct]   = useState(DEFAULT_COMMISSION_PCT);
+  const [minTopup, setMinTopup]             = useState(DEFAULT_MIN_TOPUP);
+  const [newUserBonus, setNewUserBonus]     = useState(DEFAULT_NEW_USER_BONUS);
+
+  useEffect(() => {
+    getDoc(doc(db, 'settings', 'global')).then(snap => {
+      if (snap.exists()) {
+        const d = snap.data();
+        if (d.referralCommissionPct != null) setCommissionPct(d.referralCommissionPct);
+        if (d.referralMinTopup      != null) setMinTopup(d.referralMinTopup);
+        if (d.referralNewUserBonus  != null) setNewUserBonus(d.referralNewUserBonus);
+      }
+    }).catch(() => {});
+  }, []);
+
+  useSEO({ title: 'Giới thiệu bạn bè', description: `Giới thiệu bạn bè nhận ${commissionPct}% hoa hồng` });
 
   useEffect(() => {
     if (!currentUser) return;
@@ -44,7 +62,10 @@ const ReferralPage = () => {
   };
 
   const credited = referrals.filter(r=>r.credited).length;
-  const totalEarned = credited * REFERRAL_BONUS;
+  // ✅ Sum actual commission amounts stored in each referral doc (or estimate from %)
+  const totalEarned = referrals
+    .filter(r => r.credited)
+    .reduce((sum, r) => sum + (r.commissionAmount || 0), 0);
 
   return (
     <div className="page-wrapper" style={{padding:'30px 0 80px'}}>
@@ -53,7 +74,8 @@ const ReferralPage = () => {
           <Gift size={24} style={{color:'var(--gold)'}}/> Giới thiệu bạn bè
         </h1>
         <p style={{color:'var(--text-muted)',marginBottom:28,fontSize:14}}>
-          Mỗi bạn bè đăng ký qua link của bạn và nạp tiền lần đầu → bạn nhận <strong style={{color:'var(--gold)'}}>{REFERRAL_BONUS.toLocaleString('vi-VN')}đ</strong>
+          Mỗi bạn bè nạp tiền lần đầu (≥ <strong style={{color:'var(--accent)'}}>{minTopup.toLocaleString('vi-VN')}đ</strong>) →
+          bạn nhận <strong style={{color:'var(--gold)'}}>{commissionPct}%</strong> hoa hồng trên số tiền họ nạp
         </p>
 
         {/* Stats */}
@@ -87,7 +109,7 @@ const ReferralPage = () => {
           </div>
           <div style={{marginTop:12,padding:'10px 14px',background:'rgba(0,212,255,0.06)',borderRadius:8,fontSize:12,color:'var(--text-secondary)'}}>
             <strong>Mã của bạn:</strong> <code style={{fontFamily:'monospace',fontSize:14,color:'var(--accent)',fontWeight:700}}>{refCode}</code>
-            <br/>Bạn bè nhập mã này khi đăng ký sẽ nhận thêm <strong style={{color:'var(--gold)'}}>{REFERRAL_NEW_USER_BONUS.toLocaleString('vi-VN')}đ</strong>
+            <br/>Bạn bè nhập mã này khi đăng ký sẽ nhận thêm <strong style={{color:'var(--gold)'}}>{newUserBonus.toLocaleString('vi-VN')}đ</strong>
           </div>
         </div>
 
@@ -98,14 +120,42 @@ const ReferralPage = () => {
             {[
               ['1', 'Copy link giới thiệu và chia sẻ cho bạn bè'],
               ['2', 'Bạn bè đăng ký tài khoản mới qua link của bạn'],
-              ['3', 'Bạn bè nạp tiền lần đầu (≥ 50.000đ)'],
-              ['4', `Bạn nhận ${REFERRAL_BONUS.toLocaleString('vi-VN')}đ · Bạn bè nhận ${REFERRAL_NEW_USER_BONUS.toLocaleString('vi-VN')}đ`],
+              ['3', `Bạn bè nạp tiền lần đầu (≥ ${minTopup.toLocaleString('vi-VN')}đ)`],
+              ['4', `Bạn nhận ${commissionPct}% hoa hồng · Bạn bè nhận ${newUserBonus.toLocaleString('vi-VN')}đ`],
             ].map(([n, text]) => (
               <div key={n} style={{display:'flex',alignItems:'flex-start',gap:12}}>
                 <div style={{width:24,height:24,borderRadius:'50%',background:'var(--accent)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:700,flexShrink:0}}>{n}</div>
                 <div style={{fontSize:13,color:'var(--text-secondary)',paddingTop:3}}>{text}</div>
               </div>
             ))}
+          </div>
+        </div>
+
+        {/* Commission rate info card */}
+        <div className="card" style={{padding:'16px 20px',marginBottom:16,display:'flex',gap:16,flexWrap:'wrap',alignItems:'center',
+          background:'linear-gradient(135deg,rgba(0,212,255,0.05),rgba(255,215,0,0.05))',
+          border:'1px solid rgba(255,215,0,0.2)'}}>
+          <div style={{display:'flex',gap:20,flex:1,flexWrap:'wrap'}}>
+            <div style={{textAlign:'center'}}>
+              <div style={{fontFamily:'Rajdhani',fontSize:28,fontWeight:800,color:'var(--gold)',lineHeight:1}}>{commissionPct}%</div>
+              <div style={{fontSize:11,color:'var(--text-muted)',marginTop:2}}>hoa hồng</div>
+            </div>
+            <div style={{width:1,background:'var(--border)'}}/>
+            <div style={{textAlign:'center'}}>
+              <div style={{fontFamily:'Rajdhani',fontSize:22,fontWeight:700,color:'var(--accent)',lineHeight:1}}>{minTopup.toLocaleString('vi-VN')}đ</div>
+              <div style={{fontSize:11,color:'var(--text-muted)',marginTop:2}}>nạp tối thiểu lần đầu</div>
+            </div>
+            <div style={{width:1,background:'var(--border)'}}/>
+            <div style={{textAlign:'center'}}>
+              <div style={{fontFamily:'Rajdhani',fontSize:22,fontWeight:700,color:'var(--success)',lineHeight:1}}>{newUserBonus.toLocaleString('vi-VN')}đ</div>
+              <div style={{fontSize:11,color:'var(--text-muted)',marginTop:2}}>thưởng người mới</div>
+            </div>
+          </div>
+          <div style={{fontSize:12,color:'var(--text-secondary)',maxWidth:220,lineHeight:1.6}}>
+            Bạn bè nạp <strong>100.000đ</strong> → bạn nhận{' '}
+            <strong style={{color:'var(--gold)'}}>{Math.round(commissionPct/100*100000).toLocaleString('vi-VN')}đ</strong>.
+            Nạp <strong>500.000đ</strong> → nhận{' '}
+            <strong style={{color:'var(--gold)'}}>{Math.round(commissionPct/100*500000).toLocaleString('vi-VN')}đ</strong>.
           </div>
         </div>
 
@@ -132,7 +182,10 @@ const ReferralPage = () => {
                     </td>
                     <td>
                       {r.credited
-                        ? <span style={{color:'var(--success)',fontSize:12,fontWeight:600}}>✅ Đã nhận {REFERRAL_BONUS.toLocaleString('vi-VN')}đ</span>
+                        ? <span style={{color:'var(--success)',fontSize:12,fontWeight:600}}>
+                            ✅ +{(r.commissionAmount || 0).toLocaleString('vi-VN')}đ
+                            {r.topupAmount && <span style={{fontSize:11,color:'var(--text-muted)',marginLeft:4}}>({commissionPct}% của {r.topupAmount.toLocaleString('vi-VN')}đ)</span>}
+                          </span>
                         : <span style={{color:'var(--gold)',fontSize:12}}>⏳ Chờ bạn bè nạp tiền</span>}
                     </td>
                   </tr>

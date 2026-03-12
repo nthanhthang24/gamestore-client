@@ -4,7 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { doc, getDoc, updateDoc, increment } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { useAuth } from '../../context/AuthContext';
-import { ShoppingCart, Shield, Clock, Eye, Star, ChevronLeft, ChevronRight, Zap, Award, Package, Minus, Plus, Heart } from 'lucide-react';
+import { ShoppingCart, Shield, Clock, Eye, Star, ChevronLeft, ChevronRight, Zap, Award, Package, Minus, Plus, Heart, Flame } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useFlashSale } from '../../hooks/useFlashSale';
 import { useWishlist } from '../../hooks/useWishlist';
@@ -155,6 +155,17 @@ const AccountDetailPage = ({ onAddToCart }) => {
                     </span>
                     <span className="price-old" style={{ fontSize: '18px' }}>{account.price?.toLocaleString('vi-VN')}đ</span>
                     <span className="badge badge-danger">🔥 -{activeFlashSale.discount}%</span>
+                  {/* ✅ FIX UX-01: Countdown timer on detail page */}
+                  {countdown && !countdown.expired && (
+                    <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:13,
+                      color:'#ff6b35', fontFamily:'monospace', fontWeight:700, marginTop:8,
+                      background:'rgba(255,71,87,0.08)', borderRadius:8, padding:'6px 12px',
+                      border:'1px solid rgba(255,71,87,0.2)', width:'fit-content' }}>
+                      <Clock size={13} />
+                      Flash Sale kết thúc sau&nbsp;
+                      {String(countdown.h).padStart(2,'0')}:{String(countdown.m).padStart(2,'0')}:{String(countdown.s).padStart(2,'0')}
+                    </div>
+                  )}
                   </>
                 ) : (
                   <>

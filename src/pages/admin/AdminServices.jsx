@@ -9,7 +9,7 @@ import { db } from '../../firebase/config';
 import {
   Sword, Lock, UserCheck, Zap, Plus, Trash2, ToggleLeft, ToggleRight,
   CheckCircle, ChevronDown, ChevronUp, MessageCircle, Clock,
-  Star, Phone, Eye, RefreshCw
+  Star, Phone, Eye, RefreshCw, Edit2, DollarSign, X, Save
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import './AdminServices.css';
@@ -45,6 +45,9 @@ const ManageServicesTab = () => {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [featureInput, setFeatureInput] = useState('');
+  // ✅ Inline quick-edit state: { id, priceType, price, priceUnit }
+  const [quickEdit, setQuickEdit] = useState(null);
+
   const [form, setForm] = useState({
     name: '', type: 'cay-thue', description: '',
     priceType: 'contact', price: '', priceUnit: '',
@@ -87,6 +90,20 @@ const ManageServicesTab = () => {
     setFeatureInput('');
   };
   const removeFeature = (i) => setForm(f => ({ ...f, features: f.features.filter((_, idx) => idx !== i) }));
+
+  const saveQuickEdit = async () => {
+    if (!quickEdit) return;
+    const { id, priceType, price, priceUnit } = quickEdit;
+    try {
+      await updateDoc(doc(db, 'services', id), {
+        priceType,
+        price: priceType === 'fixed' ? Number(price) : null,
+        priceUnit: priceType === 'fixed' ? priceUnit : null,
+      });
+      toast.success('Đã cập nhật giá!', T);
+      setQuickEdit(null);
+    } catch (e) { toast.error(e.message, T); }
+  };
 
   const handleSave = async () => {
     if (!form.name.trim()) { toast.error('Nhập tên dịch vụ!', T); return; }
@@ -239,7 +256,13 @@ const ManageServicesTab = () => {
                 </span>
               </div>
               <div className="av-item-actions">
-                <button className="btn btn-ghost btn-sm" onClick={() => openEdit(s)} style={{ color: 'var(--accent)', fontSize: 12 }}>✏️ Sửa</button>
+                {/* ✅ Quick-edit price button */}
+                <button className="btn btn-ghost btn-sm" title="Sửa nhanh giá"
+                  onClick={() => setQuickEdit({ id: s.id, priceType: s.priceType || 'contact', price: s.price || '', priceUnit: s.priceUnit || '' })}
+                  style={{ color: 'var(--gold)', fontSize: 12 }}>
+                  <DollarSign size={14} />
+                </button>
+                <button className="btn btn-ghost btn-sm" onClick={() => openEdit(s)} style={{ color: 'var(--accent)', fontSize: 12 }}>✏️</button>
                 <button className="btn btn-ghost btn-sm" onClick={() => toggle(s.id, 'available', s.available)}>
                   {s.available ? <ToggleRight size={20} style={{ color: 'var(--success)' }} /> : <ToggleLeft size={20} />}
                 </button>
@@ -249,6 +272,106 @@ const ManageServicesTab = () => {
           ))}
         </div>
       )}
+
+      {/* ✅ Quick-edit price panel */}
+      {quickEdit && (() => {
+        const svc = services.find(s => s.id === quickEdit.id);
+        return (
+          <div className="asvc-quickedit-overlay" onClick={e => e.target === e.currentTarget && setQuickEdit(null)}>
+            <div className="asvc-quickedit-panel card">
+              <div className="asvc-quickedit-header">
+                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                  <DollarSign size={16} style={{ color:'var(--gold)' }} />
+                  <span style={{ fontWeight:700, fontSize:15 }}>Chỉnh giá: <span style={{ color:'var(--accent)' }}>{svc?.name}</span></span>
+                </div>
+                <button className="btn btn-ghost btn-sm" onClick={() => setQuickEdit(null)}><X size={16} /></button>
+              </div>
+
+              <div className="asvc-quickedit-body">
+                {/* Price type selector */}
+                <div className="asvc-qe-row">
+                  <label className="form-label">Loại giá</label>
+                  <div className="asvc-pricetype-btns">
+                    {PRICE_TYPES.map(pt => (
+                      <button key={pt.value}
+                        className={`asvc-ptype-btn ${quickEdit.priceType === pt.value ? 'active' : ''}`}
+                        onClick={() => setQuickEdit(q => ({ ...q, priceType: pt.value, price: '', priceUnit: '' }))}
+                      >{pt.label}</button>
+                    ))}
+                  </div>
+                </div>
+
+                {quickEdit.priceType === 'fixed' && (
+                  <div className="asvc-qe-price-row">
+                    <div className="asvc-qe-row">
+                      <label className="form-label">Giá (đ)</label>
+                      <div className="asvc-price-input-wrap">
+                        <span className="asvc-price-prefix">đ</span>
+                        <input className="form-input asvc-price-input"
+                          type="number" min="0" step="1000"
+                          value={quickEdit.price}
+                          onChange={e => setQuickEdit(q => ({ ...q, price: e.target.value }))}
+                          placeholder="VD: 50000"
+                          autoFocus
+                          onKeyDown={e => e.key === 'Enter' && saveQuickEdit()}
+                        />
+                      </div>
+                      {quickEdit.price > 0 && (
+                        <div className="asvc-price-preview">
+                          = <strong style={{ color:'var(--gold)' }}>{Number(quickEdit.price).toLocaleString('vi-VN')}đ</strong>
+                        </div>
+                      )}
+                    </div>
+                    <div className="asvc-qe-row">
+                      <label className="form-label">Đơn vị</label>
+                      <div className="asvc-unit-suggestions">
+                        {['lần','tài khoản','tháng','rank','mùa','giờ'].map(u => (
+                          <button key={u}
+                            className={`asvc-unit-chip ${quickEdit.priceUnit === u ? 'active' : ''}`}
+                            onClick={() => setQuickEdit(q => ({ ...q, priceUnit: u }))}
+                          >{u}</button>
+                        ))}
+                      </div>
+                      <input className="form-input" style={{ marginTop:8 }}
+                        value={quickEdit.priceUnit}
+                        onChange={e => setQuickEdit(q => ({ ...q, priceUnit: e.target.value }))}
+                        placeholder="Hoặc nhập tuỳ chỉnh..."
+                        onKeyDown={e => e.key === 'Enter' && saveQuickEdit()}
+                      />
+                    </div>
+                    {quickEdit.price > 0 && quickEdit.priceUnit && (
+                      <div className="asvc-display-preview">
+                        <span style={{ color:'var(--text-muted)', fontSize:12 }}>Hiển thị trên site:</span>
+                        <span className="asvc-display-price">
+                          {Number(quickEdit.price).toLocaleString('vi-VN')}đ<span style={{ color:'var(--text-muted)' }}>/{quickEdit.priceUnit}</span>
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {quickEdit.priceType === 'contact' && (
+                  <div className="asvc-noprice-hint">
+                    💬 Giá sẽ hiển thị là <strong>"Liên hệ báo giá"</strong> — admin thoả thuận trực tiếp với khách.
+                  </div>
+                )}
+                {quickEdit.priceType === 'free' && (
+                  <div className="asvc-noprice-hint" style={{ color:'var(--success)' }}>
+                    🆓 Dịch vụ miễn phí — không hiện giá.
+                  </div>
+                )}
+              </div>
+
+              <div className="asvc-quickedit-footer">
+                <button className="btn btn-ghost" onClick={() => setQuickEdit(null)}>Huỷ</button>
+                <button className="btn btn-primary" onClick={saveQuickEdit}>
+                  <Save size={14} /> Lưu giá
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </>
   );
 };

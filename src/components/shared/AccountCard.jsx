@@ -1,16 +1,19 @@
 // src/components/shared/AccountCard.jsx
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { ShoppingCart, Eye, Star, Zap, Flame, Package, Heart } from 'lucide-react';
+import { ShoppingCart, Eye, Star, Zap, Flame, Package, Heart, Clock } from 'lucide-react';
 import './AccountCard.css';
 
-const AccountCard = ({ account, onAddToCart, isWishlisted, onToggleWishlist }) => {
+const AccountCard = ({ account, onAddToCart, isWishlisted, onToggleWishlist, flashCountdown, isInCart }) => {
+  // flashCountdown prop từ parent (ShopPage/WishlistPage) — tránh N requests
   const displayPrice = account.salePrice && account.salePrice < account.price
     ? account.salePrice : account.price;
   const baseOriginal = account.originalPrice || account.price;
   const showOriginal = displayPrice < baseOriginal;
   const discountPct  = showOriginal ? Math.round((1 - displayPrice / baseOriginal) * 100) : 0;
   const isFlashSale  = account.salePrice && account.salePrice < account.price;
+  // Countdown từ activeFlashSale (đã fetch ở useFlashSale singleton)
+  const cd = isFlashSale && flashCountdown && !flashCountdown.expired ? flashCountdown : null;
 
   // Stock logic: remaining = quantity - soldCount
   const quantity  = account.quantity  != null ? account.quantity  : 1;
@@ -33,6 +36,11 @@ const AccountCard = ({ account, onAddToCart, isWishlisted, onToggleWishlist }) =
           ? <img src={account.images[0]} alt={account.title} loading="lazy" />
           : <div className="account-card-img-placeholder"><Zap size={32} style={{ color: 'var(--accent)', opacity: 0.5 }} /></div>
         }
+        {isFlashSale && (
+          <div className="flash-ribbon">
+            <Flame size={9} /> FLASH SALE
+          </div>
+        )}
         {discountPct > 0 && (
           <span className={`discount-badge ${isFlashSale ? 'discount-flash' : ''}`}>
             {isFlashSale && <Flame size={10} />} -{discountPct}%
@@ -70,10 +78,24 @@ const AccountCard = ({ account, onAddToCart, isWishlisted, onToggleWishlist }) =
         )}
 
         <div className="account-card-price">
-          <span className={`price ${isFlashSale ? 'price-sale' : ''}`}>
-            {displayPrice?.toLocaleString('vi-VN')}đ
-          </span>
-          {showOriginal && <span className="price-old">{baseOriginal.toLocaleString('vi-VN')}đ</span>}
+          <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+            <span className={`price ${isFlashSale ? 'price-sale' : ''}`}>
+              {displayPrice?.toLocaleString('vi-VN')}đ
+            </span>
+            {showOriginal && <span className="price-old">{baseOriginal.toLocaleString('vi-VN')}đ</span>}
+            {isFlashSale && discountPct > 0 && (
+              <span style={{ fontSize:10, background:'rgba(255,71,87,0.15)', color:'#ff4757',
+                borderRadius:4, padding:'1px 5px', fontWeight:700, border:'1px solid rgba(255,71,87,0.3)' }}>
+                -{(baseOriginal - displayPrice).toLocaleString('vi-VN')}đ
+              </span>
+            )}
+          </div>
+          {isFlashSale && cd && (
+            <div className="flash-countdown">
+              <Clock size={9} />
+              Kết thúc sau {String(cd.h).padStart(2,'0')}:{String(cd.m).padStart(2,'0')}:{String(cd.s).padStart(2,'0')}
+            </div>
+          )}
         </div>
 
         <div className="account-card-actions">
@@ -88,12 +110,13 @@ const AccountCard = ({ account, onAddToCart, isWishlisted, onToggleWishlist }) =
             </button>
           )}
           <button
-            className="btn btn-primary btn-sm"
+            className={`btn btn-sm ${isSold ? 'btn-ghost' : isInCart ? 'btn-accent2' : 'btn-primary'}`}
             onClick={() => onAddToCart?.(account)}
             disabled={isSold}
+            title={isInCart ? 'Đã có trong giỏ — nhấn để thêm thêm' : ''}
           >
             <ShoppingCart size={14} />
-            {isSold ? 'Hết hàng' : 'Mua ngay'}
+            {isSold ? 'Hết hàng' : isInCart ? '✓ Trong giỏ' : 'Mua ngay'}
           </button>
         </div>
       </div>

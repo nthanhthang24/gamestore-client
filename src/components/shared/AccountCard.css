@@ -205,3 +205,44 @@
   gap: 3px;
   backdrop-filter: blur(4px);
 }
+
+/* ── Flash Sale Ribbon ─────────────────────────────────── */
+.flash-ribbon {
+  position: absolute;
+  top: 8px; left: -2px;
+  background: linear-gradient(135deg, #ff4757, #ff6b35);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  padding: 3px 8px 3px 6px;
+  border-radius: 0 4px 4px 0;
+  display: flex; align-items: center; gap: 3px;
+  box-shadow: 2px 2px 6px rgba(255,71,87,0.4);
+  z-index: 3;
+  text-transform: uppercase;
+  animation: ribbonPulse 2s ease-in-out infinite;
+}
+.flash-ribbon::before {
+  content: '';
+  position: absolute;
+  left: 0; bottom: -3px;
+  border-left: 2px solid #c0392b;
+  border-bottom: 3px solid transparent;
+}
+@keyframes ribbonPulse {
+  0%, 100% { box-shadow: 2px 2px 6px rgba(255,71,87,0.4); }
+  50%       { box-shadow: 2px 2px 12px rgba(255,71,87,0.7); }
+}
+
+/* ── Flash Countdown ───────────────────────────────────── */
+.flash-countdown {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 10px; font-family: 'Share Tech Mono', monospace;
+  color: #ff6b35; font-weight: 600; margin-top: 3px;
+  animation: countdownTick 1s ease-in-out infinite alternate;
+}
+@keyframes countdownTick {
+  from { opacity: 0.8; }
+  to   { opacity: 1; }
+}

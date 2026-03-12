@@ -209,7 +209,21 @@ const OrderDetailPage = () => {
                         {item.loginUsername}
                       </span>
                     )}
-                    <div style={{fontWeight:700,color:'var(--gold)',fontFamily:'Rajdhani',fontSize:15,whiteSpace:'nowrap'}}>{item.price?.toLocaleString('vi-VN')}đ</div>
+                    <div style={{fontWeight:700,color: item.originalPrice && item.price < item.originalPrice ? '#ff4757' : 'var(--gold)',fontFamily:'Rajdhani',fontSize:15,whiteSpace:'nowrap'}}>
+                        {item.price?.toLocaleString('vi-VN')}đ
+                        {/* ✅ FIX UX-13: show original price + savings if was on sale */}
+                        {item.originalPrice && item.price < item.originalPrice && (
+                          <div style={{display:'flex',gap:4,alignItems:'center',flexWrap:'wrap',marginTop:2}}>
+                            <span style={{textDecoration:'line-through',color:'var(--text-muted)',fontSize:11,fontWeight:400}}>
+                              {item.originalPrice?.toLocaleString('vi-VN')}đ
+                            </span>
+                            <span style={{fontSize:10,background:'rgba(255,71,87,0.15)',color:'#ff4757',
+                              borderRadius:3,padding:'1px 4px',fontWeight:700,border:'1px solid rgba(255,71,87,0.3)'}}>
+                              🔥 Tiết kiệm {(item.originalPrice - item.price).toLocaleString('vi-VN')}đ
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     {isExpanded ? <ChevronUp size={14} style={{color:'var(--text-muted)',flexShrink:0}}/> : <ChevronDown size={14} style={{color:'var(--text-muted)',flexShrink:0}}/>}
                   </div>
                 </div>

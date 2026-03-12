@@ -29,7 +29,7 @@ const PRICE_RANGES = [
 ];
 const PAGE_SIZE = 12;
 
-const ShopPage = ({ onAddToCart }) => {
+const ShopPage = ({ onAddToCart, cart = [] }) => {
   const { currentUser } = useAuth();
   const { isWishlisted, toggle: toggleWishlist } = useWishlist(currentUser);
   useSEO({ title: 'Shop — Mua tài khoản game giá rẻ', description: 'Hàng nghìn tài khoản game rank cao giá tốt. LMHT, Liên Quân, Valorant, FIFA...' });
@@ -273,9 +273,16 @@ const ShopPage = ({ onAddToCart }) => {
             ) : (
               <>
                 <div className="grid grid-3" style={{ gap:20 }}>
-                  {displayedAccounts.map(acc => (
-                    <AccountCard key={acc.id} account={acc} onAddToCart={handleAddToCart} isWishlisted={isWishlisted(acc.id)} onToggleWishlist={handleWishlist} />
-                  ))}
+                  {displayedAccounts.map(acc => {
+                    // Inject salePrice trước khi render card — user thấy giá sale ngay trên listing
+                    const salePrice = activeFlashSale ? getSalePrice(acc.price, acc.gameType) : null;
+                    const accWithSale = salePrice && salePrice < acc.price
+                      ? { ...acc, salePrice }
+                      : acc;
+                    return (
+                      <AccountCard key={acc.id} account={accWithSale} onAddToCart={handleAddToCart} isWishlisted={isWishlisted(acc.id)} onToggleWishlist={handleWishlist} flashCountdown={countdown} isInCart={cart.some(c => c.id === acc.id)} />
+                    );
+                  })}
                 </div>
 
                 {/* Load more / pagination */}

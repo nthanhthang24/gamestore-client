@@ -23,7 +23,7 @@ const STATS = [
   { icon: <Clock size={24} />, value: '24/7', label: 'Hỗ trợ', color: 'var(--accent2)' },
 ];
 
-const HomePage = ({ onAddToCart }) => {
+const HomePage = ({ onAddToCart, cart = [] }) => {
   const { gameTypes: dynamicGameTypes } = useGameTypes();
   // Thêm "Tất cả" vào đầu với icon Gamepad — memoized để tránh re-render
   const GAME_TYPES = React.useMemo(() => [
@@ -196,9 +196,17 @@ const HomePage = ({ onAddToCart }) => {
               </Link>
             </div>
             <div className="grid grid-4" style={{ gap: '20px' }}>
-              {(activeType === 'all' ? featuredAccounts : featuredAccounts.filter(a => a.gameType === activeType)).map(acc => (
-                <AccountCard key={acc.id} account={acc} onAddToCart={handleAddToCart} />
-              ))}
+              {(activeType === 'all' ? featuredAccounts : featuredAccounts.filter(a => a.gameType === activeType)).map(acc => {
+                const sp = activeFlashSale ? getSalePrice(acc.price, acc.gameType) : null;
+                const accWithSale = sp && sp < acc.price ? { ...acc, salePrice: sp } : acc;
+                return (
+                  <AccountCard key={acc.id}
+                    account={accWithSale}
+                    onAddToCart={handleAddToCart}
+                    flashCountdown={countdown}
+                    isInCart={cart.some(c => c.id === acc.id)} />
+                );
+              })}
             </div>
           </div>
         </section>
@@ -227,9 +235,17 @@ const HomePage = ({ onAddToCart }) => {
               const displayAccounts = activeType === 'all' ? newAccounts : newAccounts.filter(a => a.gameType === activeType);
               return displayAccounts.length > 0 ? (
                 <div className="grid grid-4" style={{ gap: '20px' }}>
-                  {displayAccounts.map(acc => (
-                    <AccountCard key={acc.id} account={acc} onAddToCart={handleAddToCart} />
-                  ))}
+                  {displayAccounts.map(acc => {
+                    const sp = activeFlashSale ? getSalePrice(acc.price, acc.gameType) : null;
+                    const accWithSale = sp && sp < acc.price ? { ...acc, salePrice: sp } : acc;
+                    return (
+                      <AccountCard key={acc.id}
+                        account={accWithSale}
+                        onAddToCart={handleAddToCart}
+                        flashCountdown={countdown}
+                        isInCart={cart.some(c => c.id === acc.id)} />
+                    );
+                  })}
                 </div>
               ) : (
                 <div style={{ textAlign:'center', padding:'40px', color:'var(--text-muted)' }}>

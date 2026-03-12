@@ -39,3 +39,76 @@
 @media (max-width: 600px) {
   .sorder-detail-grid { grid-template-columns: 1fr; }
 }
+
+/* ── Quick-edit price panel ─────────────────────────────────────── */
+.asvc-quickedit-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,0.55); backdrop-filter: blur(2px);
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.asvc-quickedit-panel {
+  width: 100%; max-width: 440px;
+  padding: 0; overflow: hidden;
+  border: 1px solid rgba(255,215,0,0.25);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,215,0,0.1);
+}
+.asvc-quickedit-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid var(--border);
+  background: rgba(255,215,0,0.04);
+}
+.asvc-quickedit-body  { padding: 20px; display: flex; flex-direction: column; gap: 18px; }
+.asvc-quickedit-footer {
+  display: flex; justify-content: flex-end; gap: 10px;
+  padding: 14px 20px; border-top: 1px solid var(--border);
+  background: rgba(0,0,0,0.15);
+}
+
+.asvc-qe-row { display: flex; flex-direction: column; gap: 8px; }
+.asvc-qe-price-row { display: flex; flex-direction: column; gap: 16px; }
+
+/* Price type toggle buttons */
+.asvc-pricetype-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.asvc-ptype-btn {
+  padding: 7px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600;
+  border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-muted);
+  transition: all .15s;
+}
+.asvc-ptype-btn:hover { border-color: var(--text-muted); color: var(--text-primary); }
+.asvc-ptype-btn.active {
+  border-color: var(--gold); background: rgba(255,215,0,0.12); color: var(--gold);
+}
+
+/* Price input */
+.asvc-price-input-wrap { position: relative; }
+.asvc-price-prefix {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  font-size: 13px; color: var(--text-muted); font-weight: 700; pointer-events: none;
+}
+.asvc-price-input { padding-left: 28px !important; font-size: 18px !important; font-weight: 700 !important; font-family: 'Rajdhani', sans-serif !important; }
+.asvc-price-preview { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+
+/* Unit chip suggestions */
+.asvc-unit-suggestions { display: flex; gap: 6px; flex-wrap: wrap; }
+.asvc-unit-chip {
+  padding: 4px 12px; border-radius: 20px; border: 1px solid var(--border);
+  background: var(--bg-primary); color: var(--text-muted);
+  font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s;
+}
+.asvc-unit-chip:hover { border-color: var(--accent); color: var(--accent); }
+.asvc-unit-chip.active { border-color: var(--accent); background: rgba(0,212,255,0.12); color: var(--accent); }
+
+/* Final display preview */
+.asvc-display-preview {
+  display: flex; align-items: center; gap: 10; padding: 10px 14px;
+  background: rgba(255,215,0,0.06); border: 1px solid rgba(255,215,0,0.2);
+  border-radius: 8px; gap: 10px;
+}
+.asvc-display-price { font-family: 'Rajdhani', sans-serif; font-size: 20px; font-weight: 800; color: var(--gold); }
+
+/* Hint boxes */
+.asvc-noprice-hint {
+  padding: 12px 16px; border-radius: 8px;
+  background: rgba(0,212,255,0.06); border: 1px solid rgba(0,212,255,0.15);
+  font-size: 13px; color: var(--text-secondary); line-height: 1.6;
+}

@@ -384,6 +384,13 @@ const CartPage = ({ cart, setCart }) => {
                         <div className="cart-item-title">{item.title}</div>
                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
                           <span className="badge badge-accent">{item.gameType}</span>
+                          {item.salePrice && item.salePrice < item.price && (
+                            <span style={{ display:'inline-flex', alignItems:'center', gap:3, fontSize:10,
+                              background:'linear-gradient(135deg,#ff4757,#ff6b35)', color:'#fff',
+                              borderRadius:4, padding:'1px 6px', fontWeight:800 }}>
+                              <Flame size={8} /> FLASH SALE
+                            </span>
+                          )}
                           {multiSlot && (
                             <span className="badge" style={{ background: 'rgba(46,213,115,0.15)', color: '#2ed573', border: '1px solid rgba(46,213,115,0.3)' }}>
                               Nick {slotIndex[item.id]}/{slotCount[item.id]}

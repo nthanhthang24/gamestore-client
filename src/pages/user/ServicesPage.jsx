@@ -295,6 +295,20 @@ const ServicesPage = () => {
         status: 'pending',
         createdAt: serverTimestamp(),
       });
+      // ✅ FIX: Send confirmation notification to user
+      try {
+        await addDoc(collection(db, 'notifications'), {
+          title: '📋 Yêu cầu dịch vụ đã được gửi',
+          body: `Yêu cầu "${selectedService.name}" của bạn đã được tiếp nhận. Admin sẽ liên hệ bạn qua ${formData.contactMethod} sớm nhất có thể.`,
+          type: 'service',
+          targetAll: false,
+          targetUserId: currentUser.uid,
+          active: true,
+          read: [],
+          createdAt: serverTimestamp(),
+          createdBy: 'system',
+        });
+      } catch(_) {} // non-critical
       toast.success('Đã gửi yêu cầu! Admin sẽ liên hệ bạn sớm nhất có thể. 🎮', { duration: 5000, ...T });
       setSelectedService(null);
     } catch (e) {

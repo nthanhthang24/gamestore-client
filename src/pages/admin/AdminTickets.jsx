@@ -1,6 +1,6 @@
 // src/pages/admin/AdminTickets.jsx
 import React, { useState, useEffect } from 'react';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, serverTimestamp, runTransaction } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, serverTimestamp, runTransaction, addDoc } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { Shield, MessageSquare, AlertTriangle, CheckCircle, X, RefreshCw, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -35,6 +35,45 @@ const AdminTickets = () => {
 
   const load = () => {}; // no-op: onSnapshot handles realtime
 
+  // ✅ FIX 4: Send in-app notification to user when ticket is updated
+  const sendTicketNotification = async (ticket, newStatus, adminReply) => {
+    const STATUS_MSG = {
+      in_progress: { title: '🔄 Ticket đang được xử lý', emoji: '🔄' },
+      resolved:    { title: '✅ Ticket đã được giải quyết', emoji: '✅' },
+      rejected:    { title: '❌ Ticket đã bị từ chối', emoji: '❌' },
+    };
+    const msg = STATUS_MSG[newStatus];
+    if (!msg || !ticket.userId) return;
+
+    const typeLabel = { warranty:'Bảo hành', refund:'Hoàn tiền', support:'Hỗ trợ' }[ticket.type] || 'Hỗ trợ';
+    let body = `Yêu cầu ${typeLabel} của bạn (Đơn #${(ticket.orderId||ticket.id).slice(-8).toUpperCase()}) ${
+      newStatus === 'in_progress' ? 'đang được admin xử lý.' :
+      newStatus === 'resolved'    ? 'đã được giải quyết.' :
+      'đã bị từ chối.'
+    }`;
+    if (adminReply) body += ` Phản hồi: "${adminReply}"`;
+    if (newStatus === 'resolved' && ticket.type === 'refund' && ticket.total > 0) {
+      body += ` Số tiền ${ticket.total.toLocaleString('vi-VN')}đ đã được hoàn vào số dư.`;
+    }
+
+    try {
+      await addDoc(collection(db, 'notifications'), {
+        title: msg.title,
+        body,
+        type: 'ticket',
+        targetAll: false,
+        targetUserId: ticket.userId,
+        ticketId: ticket.id,
+        active: true,
+        read: [],
+        createdAt: serverTimestamp(),
+        createdBy: 'system',
+      });
+    } catch(e) {
+      console.warn('Failed to send ticket notification:', e.message);
+    }
+  };
+
   const handleAction = async () => {
     if (!action) { toast.error('Chọn hành động',TS); return; }
     setSaving(true);
@@ -54,6 +93,9 @@ const AdminTickets = () => {
         await updateDoc(doc(db,'tickets',selected.id), updates);
         toast.success('Đã cập nhật ticket',TS);
       }
+
+      // ✅ FIX 4: Notify user
+      await sendTicketNotification(selected, action, reply.trim());
 
       setTickets(p=>p.map(t=>t.id===selected.id?{...t,...updates}:t));
       setSelected(null); setReply(''); setAction('');
