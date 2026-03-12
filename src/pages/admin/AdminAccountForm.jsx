@@ -154,6 +154,7 @@ const AdminAccountForm = () => {
   const [previews, setPreviews] = useState([]);
   const [loading, setLoading]   = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [existingSoldCount, setExistingSoldCount] = useState(0); // track for edit qty validation
 
   // credentials = array of slots, length always === form.quantity
   const [credentials, setCredentials] = useState([emptySlot()]);
@@ -194,6 +195,7 @@ const AdminAccountForm = () => {
       }
     ];
     setCredentials(creds.map(c => ({ ...emptySlot(), ...c, _expanded: false })));
+    setExistingSoldCount(d.soldCount || 0);
   };
 
   const handleChange = (e) => {
@@ -263,6 +265,14 @@ const AdminAccountForm = () => {
     if (!bulkPreview.length) { toast.error('Không có dòng hợp lệ nào'); return; }
     const invalid = bulkPreview.filter(s => !s.loginUsername);
     if (invalid.length) { toast.error(`${invalid.length} dòng thiếu username`); return; }
+    // Warn if existing slots would be overwritten
+    const existingFilled = credentials.filter(s => s.loginUsername?.trim() || s.attachmentName);
+    if (existingFilled.length > 0) {
+      const ok = window.confirm(
+        `Bạn đang có ${existingFilled.length} slot đã điền thông tin.\nNhập hàng loạt sẽ XÓA toàn bộ và thay bằng ${bulkPreview.length} slot mới.\n\nTiếp tục?`
+      );
+      if (!ok) return;
+    }
     setCredentials(bulkPreview);
     setForm(p => ({ ...p, quantity: bulkPreview.length }));
     setBulkText('');
@@ -307,9 +317,15 @@ const AdminAccountForm = () => {
   const handleSubmit = async (e) => {
     if (e?.preventDefault) e.preventDefault();
     if (!form.title || !form.price) { toast.error('Điền đầy đủ thông tin!'); return; }
+    if (!form.gameType) { toast.error('Vui lòng chọn loại game!'); return; }
     if (Number(form.price) <= 0)    { toast.error('Giá bán phải > 0!'); return; }
     if (form.originalPrice && Number(form.originalPrice) < Number(form.price))
       { toast.error('Giá gốc phải ≥ giá bán!'); return; }
+    // BUG-AAF-1: Prevent reducing quantity below already-sold count
+    if (isEdit && credentials.length < existingSoldCount) {
+      toast.error(`Không thể giảm số lượng xuống ${credentials.length} — đã bán ${existingSoldCount} slot. Số lượng tối thiểu: ${existingSoldCount}.`);
+      return;
+    }
 
     // Validate slots: mỗi slot phải có username HOẶC attachment
     for (let i = 0; i < credentials.length; i++) {

@@ -65,29 +65,48 @@ export const RatingWidget = ({ accountId, currentUser, onCountChange }) => {
 
   const loadRatings = () => {}; // no-op: replaced by onSnapshot
 
+  // ATK-14 FIX: track orderId as proof of purchase — embedded in rating doc
+  const [purchaseOrderId, setPurchaseOrderId] = useState(null);
+
   useEffect(() => {
     // Check if user bought this account (can only rate after purchase)
     if (!currentUser) { setCanRate(false); return; }
     getDocs(query(collection(db,'orders'), where('userId','==',currentUser.uid)))
       .then(snap => {
-        const bought = snap.docs.some(d =>
+        const matchingOrder = snap.docs.find(d =>
           (d.data().items||[]).some(i => i.id === accountId)
         );
-        setCanRate(bought);
+        setCanRate(!!matchingOrder);
+        if (matchingOrder) setPurchaseOrderId(matchingOrder.id);
       }).catch(()=>{});
   }, [accountId, currentUser?.uid]);
 
   const handleSubmit = async () => {
     if (!form.comment.trim()) { toast.error('Viết nhận xét để gửi đánh giá', TS); return; }
+    // FIX ATK-14: verify purchase before submit — not just UI state
+    if (!purchaseOrderId) {
+      toast.error('Bạn cần mua sản phẩm trước khi đánh giá.', TS);
+      return;
+    }
     setSubmitting(true);
     try {
+      // Re-verify order in Firestore right before writing (defense-in-depth)
+      const { getDoc, doc: _doc } = await import('firebase/firestore');
+      const orderSnap = await getDoc(_doc(db, 'orders', purchaseOrderId));
+      if (!orderSnap.exists() ||
+          orderSnap.data().userId !== currentUser.uid ||
+          !(orderSnap.data().items||[]).some(i => i.id === accountId)) {
+        toast.error('Không thể xác nhận đơn hàng. Vui lòng thử lại.', TS);
+        return;
+      }
       await addDoc(collection(db,'ratings'), {
         accountId,
         userId:      currentUser.uid,
         userEmail:   currentUser.email,
         displayName: currentUser.displayName || currentUser.email.split('@')[0],
         stars:       form.stars,
-        comment:     form.comment.trim(),
+        comment:     form.comment.trim().slice(0, 500),
+        orderId:     purchaseOrderId, // proof of purchase
         createdAt:   serverTimestamp(),
       });
       toast.success('✅ Đã gửi đánh giá!', TS);

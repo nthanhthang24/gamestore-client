@@ -138,9 +138,20 @@ const ShopPage = ({ onAddToCart }) => {
       );
     if (gameType !== 'Tất cả') result = result.filter(a => a.gameType === gameType);
     const range = PRICE_RANGES[priceRange];
-    result = result.filter(a => a.price >= range.min && a.price <= range.max);
-    if (sortBy === 'price_asc')  result.sort((a, b) => a.price - b.price);
-    else if (sortBy === 'price_desc') result.sort((a, b) => b.price - a.price);
+    result = result.filter(a => {
+      const effectivePrice = activeFlashSale ? (getSalePrice(a.price, a.gameType) || a.price) : a.price;
+      return effectivePrice >= range.min && effectivePrice <= range.max;
+    });
+    if (sortBy === 'price_asc')  result.sort((a, b) => {
+      const pa = activeFlashSale ? (getSalePrice(a.price, a.gameType) || a.price) : a.price;
+      const pb = activeFlashSale ? (getSalePrice(b.price, b.gameType) || b.price) : b.price;
+      return pa - pb;
+    });
+    else if (sortBy === 'price_desc') result.sort((a, b) => {
+      const pa = activeFlashSale ? (getSalePrice(a.price, a.gameType) || a.price) : a.price;
+      const pb = activeFlashSale ? (getSalePrice(b.price, b.gameType) || b.price) : b.price;
+      return pb - pa;
+    });
     else if (sortBy === 'popular')    result.sort((a, b) => (b.views || 0) - (a.views || 0));
     return result;
   })();

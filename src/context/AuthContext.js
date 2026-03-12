@@ -21,15 +21,17 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   const register = async (email, password, displayName) => {
+    // FIX A-11: sanitize displayName before saving — strip HTML, max 50 chars
+    const cleanDisplayName = (displayName || '').replace(/<[^>]*>/g, '').trim().slice(0, 50) || 'Người dùng';
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    await updateProfile(userCredential.user, { displayName });
+    await updateProfile(userCredential.user, { displayName: cleanDisplayName });
 
     // Lưu Firestore - không block nếu Firestore chưa tạo
     try {
       await setDoc(doc(db, 'users', userCredential.user.uid), {
         uid: userCredential.user.uid,
         email,
-        displayName,
+        displayName: cleanDisplayName,
         role: 'user',
         balance: 0,
         createdAt: serverTimestamp(),
@@ -94,13 +96,19 @@ export const AuthProvider = ({ children }) => {
       if (user) {
         // Initial fetch
         await fetchUserProfile(user.uid);
-        // Realtime listener for balance changes (B-10)
+        // Realtime listener for balance changes + banned status (B-10, FIX A-18)
         const { onSnapshot } = await import('firebase/firestore');
         profileUnsub = onSnapshot(
           doc(db, 'users', user.uid),
-          (snap) => {
+          async (snap) => {
             if (snap.exists()) {
-              setUserProfile(prev => ({ ...prev, ...snap.data(), balance: snap.data().balance || 0 }));
+              const data = snap.data();
+              // FIX A-18: Check banned in realtime — kick immediately when admin bans
+              if (data.banned) {
+                await signOut(auth);
+                return;
+              }
+              setUserProfile(prev => ({ ...prev, ...data, balance: data.balance || 0 }));
             }
           },
           (err) => console.warn('Profile listener error:', err.message)

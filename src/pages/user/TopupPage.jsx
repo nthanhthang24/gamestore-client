@@ -10,6 +10,7 @@ import './TopupPage.css';
 
 const SERVER_URL = process.env.REACT_APP_SERVER_URL || 'https://gamestore-server-i20i.onrender.com';
 const AMOUNTS = [50000, 100000, 200000, 500000, 1000000, 2000000];
+const DEFAULT_MIN_TOPUP = 10000;
 
 const statusConfig = {
   pending:  { label: 'Đang chờ',   badge: 'badge-gold',    icon: <Clock size={13} /> },
@@ -26,9 +27,21 @@ const TopupPage = () => {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [bankData, setBankData] = useState(null);
-  const bankDataRef = useRef(null); // ← ref để closure trong onSnapshot luôn đọc được giá trị mới nhất
+  const bankDataRef = useRef(null);
   const [copied, setCopied] = useState('');
-  const [activeTab, setActiveTab] = useState('topup'); // 'topup' | 'history'
+  const [activeTab, setActiveTab] = useState('topup');
+  const [minTopup, setMinTopup] = useState(DEFAULT_MIN_TOPUP);
+
+  // Load minTopupAmount from Firestore settings
+  useEffect(() => {
+    import('firebase/firestore').then(({ doc, getDoc }) =>
+      import('../../firebase/config').then(({ db }) =>
+        getDoc(doc(db, 'settings', 'global')).then(snap => {
+          if (snap.exists() && snap.data().minTopupAmount) setMinTopup(snap.data().minTopupAmount);
+        }).catch(() => {})
+      )
+    );
+  }, []);
 
   // Sync ref mỗi khi bankData thay đổi
   useEffect(() => {
@@ -103,7 +116,7 @@ const TopupPage = () => {
   const handleCreateQR = async () => {
     if (!currentUser) { navigate('/login'); return; }
     const amt = Number(amount);
-    if (!amt || amt < 10000) { toast.error('Số tiền tối thiểu 10,000đ'); return; }
+    if (!amt || amt < minTopup) { toast.error(`Số tiền tối thiểu ${minTopup.toLocaleString('vi-VN')}đ`); return; }
     // ✅ FIX: Giới hạn số lần tạo QR (max 50 triệu/lần nạp)
     if (amt > 50_000_000) { toast.error('Số tiền tối đa mỗi lần nạp là 50,000,000đ'); return; }
     // Rate limit đơn giản: max 3 topup pending cùng lúc (không cần composite index)
@@ -121,8 +134,15 @@ const TopupPage = () => {
 
     setLoading(true);
     try {
+      // FIX VULN-14: gửi Firebase ID token để server verify — không ai giả mạo userId được
+      const { getAuth } = await import('firebase/auth');
+      const idToken = await getAuth().currentUser?.getIdToken(true);
+      if (!idToken) throw new Error('Không lấy được auth token. Vui lòng đăng nhập lại.');
+
       const url = `${SERVER_URL}/bank/vietqr?amount=${amt}&userId=${currentUser.uid}&userEmail=${encodeURIComponent(currentUser.email)}`;
-      const res = await fetch(url);
+      const res = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${idToken}` },
+      });
       if (!res.ok) {
         // Parse lỗi từ server
         let errMsg = `Lỗi server (HTTP ${res.status})`;
@@ -202,8 +222,8 @@ const TopupPage = () => {
                 <div className="form-group" style={{ marginTop: '14px' }}>
                   <label className="form-label">Hoặc nhập số tiền khác</label>
                   <input type="number" className="form-input"
-                    placeholder="Tối thiểu 10,000đ"
-                    value={amount} onChange={e => setAmount(e.target.value)} min="10000"
+                    placeholder={`Tối thiểu ${minTopup.toLocaleString('vi-VN')}đ`}
+                    value={amount} onChange={e => setAmount(e.target.value)} min={minTopup}
                   />
                 </div>
 
@@ -211,7 +231,7 @@ const TopupPage = () => {
                   className="btn btn-lg w-full pay-btn bank"
                   style={{ marginTop: '18px' }}
                   onClick={handleCreateQR}
-                  disabled={loading || !amount || Number(amount) < 10000}
+                  disabled={loading || !amount || Number(amount) < minTopup}
                 >
                   {loading
                     ? <><span className="spinner" style={{ width: 18, height: 18, borderWidth: 2 }} /> Đang tạo QR...</>
@@ -220,7 +240,7 @@ const TopupPage = () => {
                 </button>
 
                 <p style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', marginTop: '10px' }}>
-                  ⚡ Hỗ trợ tất cả ngân hàng VN · Tự động cộng tiền qua SePay webhook
+                  ⚡ Hỗ trợ tất cả ngân hàng VN · Tự động cộng tiền qua máy chủ
                 </p>
               </div>
 
@@ -232,7 +252,7 @@ const TopupPage = () => {
                     'Chọn số tiền → Bấm tạo QR',
                     'Quét QR bằng app ngân hàng bất kỳ',
                     'Chuyển khoản — nội dung đã điền sẵn',
-                    'SePay nhận tín hiệu → tự động cộng tiền ✅',
+                    'Máy chủ nhận tín hiệu → tự động cộng tiền ✅',
                   ].map((s, i) => (
                     <div key={i} className="process-step">
                       <span className="step-dot bank">{i + 1}</span>
@@ -254,7 +274,7 @@ const TopupPage = () => {
                   {(userProfile?.balance || 0).toLocaleString('vi-VN')}đ
                 </div>
                 <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, fontSize: 13, color: 'var(--text-secondary)' }}>
-                  <div style={{ marginBottom: 8 }}>🔒 Thanh toán an toàn qua BIDV + SePay</div>
+                  <div style={{ marginBottom: 8 }}>🔒 Thanh toán an toàn qua BIDV</div>
                   <div style={{ marginBottom: 8 }}>⚡ Cộng tiền tự động trong 5-30 giây</div>
                   <div>🕐 Giao dịch lịch sử xem trong tab <strong>Lịch sử</strong></div>
                 </div>
@@ -354,7 +374,7 @@ const BankModal = ({ data, onClose, onCopy, copied }) => (
       {/* Thông tin TK */}
       {data.method === 'va' && (
         <div style={{ background: 'rgba(0,255,136,0.08)', border: '1px solid rgba(0,255,136,0.3)', borderRadius: 8, padding: '8px 12px', marginBottom: 10, fontSize: 12, color: 'var(--success)', display: 'flex', alignItems: 'center', gap: 6 }}>
-          ✅ <strong>VA riêng</strong> — SePay tự động xác nhận, không cần nhập nội dung chuyển khoản
+          ✅ <strong>VA riêng</strong> — Máy chủ tự động xác nhận, không cần nhập nội dung chuyển khoản
         </div>
       )}
       {data.method === 'static' && (
@@ -389,7 +409,7 @@ const BankModal = ({ data, onClose, onCopy, copied }) => (
 
       <div className="pm-waiting">
         <div className="waiting-dot" style={{ background: '#0066cc', boxShadow: '0 0 0 0 rgba(0,102,204,0.4)' }} />
-        <span>Đang chờ xác nhận từ SePay...</span>
+        <span>Đang chờ xác nhận từ máy chủ...</span>
         <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
           {data.method === 'va'
             ? '✅ VA riêng — tự động xác nhận 5-15 giây sau chuyển khoản'

@@ -459,11 +459,17 @@ const AdminSettingsPage = () => {
 
   const handleSave = async () => {
     try {
-      await import('firebase/firestore').then(({ doc, setDoc }) =>
-        import('./firebase/config').then(({ db }) =>
-          setDoc(doc(db, 'settings', 'global'), settings, { merge: true })
-        )
-      );
+      const { doc, setDoc, addDoc, collection, serverTimestamp } = await import('firebase/firestore');
+      const { db } = await import('./firebase/config');
+      await setDoc(doc(db, 'settings', 'global'), settings, { merge: true });
+      // FIX T-04: audit log mỗi khi admin đổi settings (bao gồm theme)
+      try {
+        await addDoc(collection(db, 'auditLogs'), {
+          action:    'settings_updated',
+          data:      JSON.stringify(settings).slice(0, 500), // cap 500 chars
+          createdAt: serverTimestamp(),
+        });
+      } catch (_) {} // audit log failure không block save
       setSaved(true); setTimeout(() => setSaved(false), 2000);
     } catch (e) { import('react-hot-toast').then(({default:t})=>t.error('Lỗi lưu settings: '+e.message)); }
   };
@@ -515,13 +521,149 @@ const AdminSettingsPage = () => {
         </Row>
       </div>
 
+      {/* ── Theme & Màu sắc ─────────────────────────────────── */}
       <div className="card" style={{ padding: 24 }}>
-        <h3 style={{ marginBottom: 16, color: 'var(--accent)' }}>📊 Thông tin hệ thống</h3>
-        <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 2 }}>
-          <div>🔧 Stack: React 18 + Firebase Firestore + Cloudinary</div>
-          <div>🚀 Deploy: Vercel (Frontend) + Render (Backend)</div>
-          <div>💳 Payment: BIDV via SePay webhook</div>
-          <div>⚡ Version: 2.3.0-sprint13</div>
+        <h3 style={{ marginBottom: 20, color: 'var(--accent)' }}>🎨 Theme & Màu sắc</h3>
+
+        {/* Accent color */}
+        <Row label="Màu chủ đạo (Accent)" desc="Màu nổi bật chính — nút, link, border focus">
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <input type="color"
+              value={settings.themeAccent || '#00d4ff'}
+              onChange={e => setSettings(s => ({ ...s, themeAccent: e.target.value }))}
+              style={{ width:44, height:36, border:'none', borderRadius:8, cursor:'pointer', background:'none', padding:2 }}
+            />
+            <input className="form-input" style={{ width:100, fontFamily:'monospace', fontSize:13 }}
+              value={settings.themeAccent || '#00d4ff'}
+              onChange={e => setSettings(s => ({ ...s, themeAccent: e.target.value }))}
+              maxLength={7}
+            />
+          </div>
+        </Row>
+
+        {/* Accent2 color */}
+        <Row label="Màu phụ (Accent 2)" desc="Màu nút thứ cấp, tag cam">
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <input type="color"
+              value={settings.themeAccent2 || '#ff6b35'}
+              onChange={e => setSettings(s => ({ ...s, themeAccent2: e.target.value }))}
+              style={{ width:44, height:36, border:'none', borderRadius:8, cursor:'pointer', background:'none', padding:2 }}
+            />
+            <input className="form-input" style={{ width:100, fontFamily:'monospace', fontSize:13 }}
+              value={settings.themeAccent2 || '#ff6b35'}
+              onChange={e => setSettings(s => ({ ...s, themeAccent2: e.target.value }))}
+              maxLength={7}
+            />
+          </div>
+        </Row>
+
+        {/* Background primary */}
+        <Row label="Nền chính" desc="Màu nền toàn trang">
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <input type="color"
+              value={settings.themeBgPrimary || '#0a0e1a'}
+              onChange={e => setSettings(s => ({ ...s, themeBgPrimary: e.target.value }))}
+              style={{ width:44, height:36, border:'none', borderRadius:8, cursor:'pointer', background:'none', padding:2 }}
+            />
+            <input className="form-input" style={{ width:100, fontFamily:'monospace', fontSize:13 }}
+              value={settings.themeBgPrimary || '#0a0e1a'}
+              onChange={e => setSettings(s => ({ ...s, themeBgPrimary: e.target.value }))}
+              maxLength={7}
+            />
+          </div>
+        </Row>
+
+        {/* Card background */}
+        <Row label="Nền card / modal" desc="Màu nền của các thẻ, popup, form">
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <input type="color"
+              value={settings.themeBgCard || '#131929'}
+              onChange={e => setSettings(s => ({ ...s, themeBgCard: e.target.value }))}
+              style={{ width:44, height:36, border:'none', borderRadius:8, cursor:'pointer', background:'none', padding:2 }}
+            />
+            <input className="form-input" style={{ width:100, fontFamily:'monospace', fontSize:13 }}
+              value={settings.themeBgCard || '#131929'}
+              onChange={e => setSettings(s => ({ ...s, themeBgCard: e.target.value }))}
+              maxLength={7}
+            />
+          </div>
+        </Row>
+
+        {/* Gold / Price color */}
+        <Row label="Màu giá / vàng" desc="Màu hiển thị giá tiền, số dư">
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <input type="color"
+              value={settings.themeGold || '#ffd700'}
+              onChange={e => setSettings(s => ({ ...s, themeGold: e.target.value }))}
+              style={{ width:44, height:36, border:'none', borderRadius:8, cursor:'pointer', background:'none', padding:2 }}
+            />
+            <input className="form-input" style={{ width:100, fontFamily:'monospace', fontSize:13 }}
+              value={settings.themeGold || '#ffd700'}
+              onChange={e => setSettings(s => ({ ...s, themeGold: e.target.value }))}
+              maxLength={7}
+            />
+          </div>
+        </Row>
+
+        {/* Preset themes */}
+        <div style={{ marginTop:20, paddingTop:16, borderTop:'1px solid var(--border)' }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+            <div style={{ fontSize:13, fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px' }}>
+              🎭 Preset Theme
+            </div>
+            <button
+              onClick={() => setSettings(s => ({
+                ...s,
+                themeAccent:    '#00d4ff',
+                themeAccent2:   '#ff6b35',
+                themeBgPrimary: '#0a0e1a',
+                themeBgCard:    '#131929',
+                themeGold:      '#ffd700',
+              }))}
+              style={{
+                padding:'6px 12px', borderRadius:6, cursor:'pointer', fontSize:12, fontWeight:600,
+                border:'1px solid var(--border)', background:'transparent',
+                color:'var(--text-muted)', transition:'all .2s', display:'flex', alignItems:'center', gap:6,
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor='var(--danger)'; e.currentTarget.style.color='var(--danger)'; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor='var(--border)'; e.currentTarget.style.color='var(--text-muted)'; }}
+            >
+              ↺ Reset về mặc định
+            </button>
+          </div>
+          <div style={{ display:'flex', gap:10, flexWrap:'wrap' }}>
+            {[
+              { name:'🌊 Cyber Blue (Mặc định)', accent:'#00d4ff', accent2:'#ff6b35', bg:'#0a0e1a', card:'#131929', gold:'#ffd700' },
+              { name:'💜 Neon Purple',           accent:'#a855f7', accent2:'#ec4899', bg:'#0d0a1a', card:'#16102a', gold:'#ffd700' },
+              { name:'🟢 Matrix Green',           accent:'#00ff88', accent2:'#00cc6a', bg:'#060f0a', card:'#0d1a12', gold:'#88ff00' },
+              { name:'🔴 Crimson Dark',           accent:'#ff4757', accent2:'#ff6b35', bg:'#0f0a0a', card:'#1a1010', gold:'#ffd700' },
+              { name:'☀️ Light Mode',              accent:'#2563eb', accent2:'#f59e0b', bg:'#f8fafc', card:'#ffffff', gold:'#d97706' },
+            ].map(preset => (
+              <button key={preset.name}
+                onClick={() => setSettings(s => ({
+                  ...s,
+                  themeAccent:    preset.accent,
+                  themeAccent2:   preset.accent2,
+                  themeBgPrimary: preset.bg,
+                  themeBgCard:    preset.card,
+                  themeGold:      preset.gold,
+                }))}
+                style={{
+                  padding:'8px 14px', borderRadius:8, cursor:'pointer', fontSize:12, fontWeight:600,
+                  border:'1px solid var(--border)', background:'var(--bg-card)',
+                  color:'var(--text-primary)', transition:'all .2s',
+                }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = preset.accent}
+                onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
+              >
+                {preset.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ marginTop:16, padding:'12px 16px', borderRadius:8, background:'var(--accent-dim)', border:'1px solid rgba(0,212,255,0.2)', fontSize:12, color:'var(--text-secondary)' }}>
+          💡 Theme áp dụng ngay khi nhấn <strong>Lưu thay đổi</strong> — tất cả user sẽ thấy màu mới khi reload trang.
         </div>
       </div>
     </div>
@@ -938,11 +1080,13 @@ const ProfilePage = () => {
 
   const handleSave = async () => {
     if (!displayName.trim()) return;
+    const cleanName = displayName.trim().replace(/<[^>]*>/g, '').slice(0, 50); // strip HTML, max 50 chars
+    if (!cleanName) return;
     setSaving(true);
     try {
       await import('firebase/firestore').then(({ doc, updateDoc }) =>
         import('./firebase/config').then(({ db }) =>
-          updateDoc(doc(db, 'users', currentUser.uid), { displayName: displayName.trim() })
+          updateDoc(doc(db, 'users', currentUser.uid), { displayName: cleanName })
         )
       );
       await fetchUserProfile(currentUser.uid);
@@ -1176,14 +1320,72 @@ const AppContent = () => {
   useServerWakeup(); // ✅ Ping server ngay khi app load → tránh delay 50s
   const { userProfile: _up } = useAuth();
 
-  // ✅ Maintenance mode: đọc từ Firestore settings/global
+  // ✅ Maintenance mode + settings: đọc từ Firestore settings/global
   const [maintenance, setMaintenance] = useState(false);
   const [maintenanceChecked, setMaintenanceChecked] = useState(false);
+  const [maxCartItems, setMaxCartItems] = useState(100); // default; overridden by settings
   React.useEffect(() => {
     import('firebase/firestore').then(({ doc, onSnapshot }) =>
       import('./firebase/config').then(({ db }) => {
         const unsub = onSnapshot(doc(db, 'settings', 'global'), (snap) => {
-          setMaintenance(snap.exists() ? (snap.data().maintenanceMode || false) : false);
+          if (snap.exists()) {
+            const d = snap.data();
+            setMaintenance(d.maintenanceMode || false);
+            if (d.maxCartItems) setMaxCartItems(d.maxCartItems);
+
+            // ── Apply theme CSS variables dynamically ──────────────────
+            // Admin can change brand colors from settings panel — applied globally
+            const root = document.documentElement;
+            // FIX N-08/N-09: validate strict 6-digit hex, expand 3-char shorthand
+            // FIX N-14/T-02: sanitize CSS injection — only allow valid #RRGGBB hex
+            const isValidHex = (v) => typeof v === 'string' && /^#[0-9A-Fa-f]{6}$/.test(v);
+            const expandHex  = (v) => {
+              if (!v || typeof v !== 'string') return null;
+              const s = v.trim();
+              if (/^#[0-9A-Fa-f]{6}$/.test(s)) return s;           // already 6-digit
+              if (/^#[0-9A-Fa-f]{3}$/.test(s))                      // expand 3→6
+                return '#' + s[1]+s[1]+s[2]+s[2]+s[3]+s[3];
+              return null; // invalid — reject
+            };
+            const hexToRgba = (hex, a) => {
+              const h = expandHex(hex);
+              if (!h) return null;
+              const r = parseInt(h.slice(1,3),16);
+              const g = parseInt(h.slice(3,5),16);
+              const b = parseInt(h.slice(5,7),16);
+              return `rgba(${r},${g},${b},${a})`;
+            };
+            const safeSet = (prop, value) => {
+              if (value !== null && value !== undefined) root.style.setProperty(prop, value);
+            };
+            if (isValidHex(expandHex(d.themeAccent))) {
+              const h = expandHex(d.themeAccent);
+              safeSet('--accent',      h);
+              safeSet('--accent-dim',  hexToRgba(h, 0.15));
+              safeSet('--accent-glow', hexToRgba(h, 0.4));
+              safeSet('--shadow-glow', `0 0 20px ${hexToRgba(h, 0.2)}`);
+            }
+            if (isValidHex(expandHex(d.themeAccent2))) {
+              const h = expandHex(d.themeAccent2);
+              safeSet('--accent2',     h);
+              safeSet('--accent2-dim', hexToRgba(h, 0.15));
+            }
+            if (isValidHex(expandHex(d.themeBgPrimary))) {
+              const h = expandHex(d.themeBgPrimary);
+              safeSet('--bg-primary',   h);
+              safeSet('--bg-secondary', h + 'ee');
+            }
+            if (isValidHex(expandHex(d.themeBgCard))) {
+              const h = expandHex(d.themeBgCard);
+              safeSet('--bg-card',      h);
+              safeSet('--bg-card-hover',h + 'cc');
+            }
+            if (isValidHex(expandHex(d.themeGold))) {
+              const h = expandHex(d.themeGold);
+              safeSet('--gold',     h);
+              safeSet('--gold-dim', hexToRgba(h, 0.15));
+            }
+          }
           setMaintenanceChecked(true);
         }, () => setMaintenanceChecked(true));
         return unsub;
@@ -1219,21 +1421,23 @@ const AppContent = () => {
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
-  // ✅ FIX T2-02: Validate cart items against Firestore on startup
-  React.useEffect(() => {
-    if (cart.length === 0) return;
+  // ✅ FIX T2-02: Validate cart items against Firestore on startup + window focus
+  const validateCart = React.useCallback(() => {
+    // Use ref to avoid stale closure — read cart from localStorage directly
+    const currentCart = (() => {
+      try { return JSON.parse(localStorage.getItem('gs_cart') || '[]'); } catch { return []; }
+    })();
+    if (currentCart.length === 0) return;
     import('firebase/firestore').then(({ doc, getDoc }) => {
       import('./firebase/config').then(async ({ db }) => {
-        // Dedupe account IDs to avoid redundant fetches (multi-slot same account)
-        const uniqueIds = [...new Set(cart.map(item => item.id))];
+        const uniqueIds = [...new Set(currentCart.map(item => item.id))];
         const snapMap = {};
         await Promise.allSettled(uniqueIds.map(id =>
           getDoc(doc(db, 'accounts', id)).then(snap => { snapMap[id] = snap; })
         ));
-        // For each cart slot, verify account exists and has remaining stock
         let changed = false;
-        const soldCountTracker = {}; // how many slots of each account we keep
-        const validCart = cart.filter(item => {
+        const soldCountTracker = {};
+        const validCart = currentCart.filter(item => {
           const snap = snapMap[item.id];
           if (!snap || !snap.exists()) { changed = true; return false; }
           const d = snap.data();
@@ -1251,18 +1455,25 @@ const AppContent = () => {
         }
       });
     });
-  }, []); // chỉ chạy 1 lần khi app khởi động
+  }, []);
+
+  React.useEffect(() => {
+    validateCart(); // run on startup
+    const onFocus = () => validateCart(); // re-run when user switches back to tab
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [validateCart]);
 
   const addToCart = (account) =>
     setCartPersist(prev => {
       const qty     = Math.max(1, account.buyQty || 1);
       // How many slots of this account are already in cart
       const already = prev.filter(i => i.id === account.id).length;
-      // How many more we can add (limited by stock and cart cap of 20)
-      const maxAdd  = Math.min(qty, (account.quantity || 1) - already, 20 - prev.length);
+      // How many more we can add (limited by stock and dynamic cart cap from settings)
+      const maxAdd  = Math.min(qty, (account.quantity || 1) - already, maxCartItems - prev.length);
       if (maxAdd <= 0) {
         import('react-hot-toast').then(({ default: toast }) => {
-          if (prev.length >= 20) toast.error('Giỏ hàng tối đa 20 sản phẩm!');
+          if (prev.length >= maxCartItems) toast.error(`Giỏ hàng tối đa ${maxCartItems} sản phẩm!`);
           else toast.error('Đã thêm tối đa số lượng có sẵn!');
         });
         return prev;

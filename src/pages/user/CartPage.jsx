@@ -43,7 +43,7 @@ const CartPage = ({ cart, setCart }) => {
 
   const handleApplyVoucher = async () => {
     if (!currentUser) { navigate('/login'); return; }
-    await applyVoucher(voucherCode, subtotal, currentUser.email);
+    await applyVoucher(voucherCode.trim(), subtotal, currentUser.email);
   };
 
   // ✅ FIX CRITICAL #1 + #2 + #3: Toàn bộ checkout chạy trong Firestore Transaction
@@ -116,6 +116,8 @@ const CartPage = ({ cart, setCart }) => {
       const verifiedAfterBulk = verifiedSubtotal - verifiedBulkDiscount;
 
       let verifiedVoucherDiscount = 0;
+      let voucherRef = null;
+      let voucherDataForTx = null;
       if (voucher) {
         const voucherSnap = await getDoc(doc(db, 'vouchers', voucher.id));
         if (!voucherSnap.exists() || !voucherSnap.data().active) {
@@ -133,6 +135,8 @@ const CartPage = ({ cart, setCart }) => {
           toast.error(`Đơn hàng tối thiểu ${vData.minOrder.toLocaleString('vi-VN')}đ.`, TS); return;
         }
         verifiedVoucherDiscount = calculateDiscount(vData, verifiedAfterBulk);
+        voucherRef = doc(db, 'vouchers', voucher.id);
+        voucherDataForTx = vData; // save for re-check INSIDE transaction
       }
 
       const verifiedTotal = Math.round(Math.max(0, verifiedSubtotal - verifiedBulkDiscount - verifiedVoucherDiscount));
@@ -186,10 +190,21 @@ const CartPage = ({ cart, setCart }) => {
           transaction.update(accountRefs[uniqueIds.indexOf(id)], updates);
         }
 
-        // ✅ [B3] Mark voucher used INSIDE main transaction — atomic
-        if (voucher) {
-          const vRef = doc(db, 'vouchers', voucher.id);
-          transaction.update(vRef, getVoucherUpdatePayload(currentUser.email));
+        // ✅ FIX D-12: Re-read voucher INSIDE transaction to prevent race condition double-use
+        // Two simultaneous checkouts: both pass pre-tx check, but only one wins atomically here
+        if (voucherRef && voucherDataForTx) {
+          const vSnap = await transaction.get(voucherRef);
+          if (!vSnap.exists() || !vSnap.data().active)
+            throw new Error('Voucher không còn hợp lệ.');
+          const vLive = vSnap.data();
+          if (vLive.usedCount >= vLive.usageLimit)
+            throw new Error('Voucher vừa hết lượt sử dụng. Vui lòng thử lại không dùng voucher.');
+          // Per-user limit check inside tx
+          const perUser = vLive.perUserLimit || 1;
+          const usedTimes = (vLive.usedBy || []).filter(e => e === currentUser.email).length;
+          if (usedTimes >= perUser)
+            throw new Error('Bạn đã dùng hết lượt voucher này.');
+          transaction.update(voucherRef, getVoucherUpdatePayload(currentUser.email));
         }
       });
 
@@ -267,8 +282,57 @@ const CartPage = ({ cart, setCart }) => {
           createdAt:      serverTimestamp(),
         });
       } catch (orderErr) {
-        console.error('‼️ CRITICAL: Transaction succeeded but order record failed:', orderErr);
-        toast.error('Thanh toán thành công nhưng có lỗi ghi đơn hàng. Liên hệ admin: ' + new Date().toISOString(), { duration: 10000, style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--danger)' } });
+        // FIX B-13: Retry order write up to 3 times — network blip should not cause data loss
+        console.error('‼️ Order write failed (attempt 1):', orderErr);
+        let orderSaved = false;
+        for (let retry = 0; retry < 3; retry++) {
+          await new Promise(r => setTimeout(r, 800 * (retry + 1)));
+          try {
+            await addDoc(collection(db, 'orders'), {
+              idempotencyKey,
+              userId:    currentUser.uid,
+              userEmail: currentUser.email,
+              userName:  userProfile?.displayName || currentUser.email,
+              items: verifiedItems.map(i => ({
+                id:               i.id,
+                title:            i.title,
+                price:            i.verifiedPrice,
+                originalPrice:    i.dbPrice,
+                gameType:         i.gameType,
+                images:           i.images || [],
+                loginUsername:    i.loginUsername    || '',
+                loginPassword:    i.loginPassword    || '',
+                loginEmail:       i.loginEmail       || '',
+                loginNote:        i.loginNote        || '',
+                attachmentContent: i.attachmentContent || null,
+                attachmentUrl:    i.attachmentUrl    || null,
+                attachmentName:   i.attachmentName   || null,
+              })),
+              subtotal:        verifiedSubtotal,
+              bulkDiscount:    verifiedBulkDiscount,
+              bulkRuleId:      verifiedBulkRule?.id || null,
+              voucherDiscount: verifiedVoucherDiscount,
+              discount:        verifiedBulkDiscount + verifiedVoucherDiscount,
+              voucherCode:     voucher?.code || null,
+              total:           verifiedTotal,
+              paymentMethod:   'balance',
+              status:          'completed',
+              createdAt:       serverTimestamp(),
+              _retryCount:     retry + 1,
+            });
+            orderSaved = true;
+            console.log(`✅ Order saved on retry ${retry + 1}`);
+            break;
+          } catch (retryErr) {
+            console.error(`‼️ Order write retry ${retry + 1} failed:`, retryErr);
+          }
+        }
+        if (!orderSaved) {
+          toast.error(
+            `⚠️ Thanh toán thành công nhưng không lưu được đơn hàng. Liên hệ admin với mã: ${idempotencyKey}`,
+            { duration: 15000, style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '2px solid var(--danger)' } }
+          );
+        }
       }
 
       await fetchUserProfile(currentUser.uid);
@@ -377,12 +441,24 @@ const CartPage = ({ cart, setCart }) => {
               <div className="card">
                 <h2 className="summary-title">Tóm tắt đơn hàng</h2>
                 <div className="summary-lines">
-                  {cart.map(item => (
-                    <div key={item.cartKey || item.id} className="summary-line">
-                      <span className="summary-line-name">{item.title}</span>
-                      <span className="summary-line-price">{(item.salePrice || item.price)?.toLocaleString('vi-VN')}đ</span>
-                    </div>
-                  ))}
+                  {(() => {
+                    const SHOW = 5;
+                    const showAll = cart.length <= SHOW;
+                    const visible = showAll ? cart : cart.slice(0, SHOW);
+                    return (<>
+                      {visible.map(item => (
+                        <div key={item.cartKey || item.id} className="summary-line">
+                          <span className="summary-line-name">{item.title}</span>
+                          <span className="summary-line-price">{(item.salePrice || item.price)?.toLocaleString('vi-VN')}đ</span>
+                        </div>
+                      ))}
+                      {!showAll && (
+                        <div className="summary-line" style={{ color:'var(--text-muted)', fontSize:12, fontStyle:'italic' }}>
+                          <span>... và {cart.length - SHOW} sản phẩm khác</span>
+                        </div>
+                      )}
+                    </>);
+                  })()}
                 </div>
                 <hr className="divider" />
                 <div className="summary-line" style={{ color: 'var(--text-secondary)' }}>

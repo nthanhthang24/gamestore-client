@@ -231,9 +231,18 @@ export const RegisterPage = () => {
           createdAt:    serverTimestamp(),
         }).catch(() => {});
 
-        // Cộng 10k cho người đăng ký ngay lập tức
-        updateDoc(doc(db, 'users', uid), { balance: increment(NEW_USER_BONUS) })
-          .catch(() => {}); // Không chặn flow nếu lỗi
+        // Cộng 10k — retry với delay để tránh race với setDoc trong AuthContext
+        const applyBonus = async (retries = 3) => {
+          for (let i = 0; i < retries; i++) {
+            try {
+              await updateDoc(doc(db, 'users', uid), { balance: increment(NEW_USER_BONUS) });
+              return; // success
+            } catch (e) {
+              if (i < retries - 1) await new Promise(r => setTimeout(r, 500 * (i + 1)));
+            }
+          }
+        };
+        applyBonus(); // fire-and-forget with internal retry
       }
       // ─────────────────────────────────────────────────────────
 
@@ -268,7 +277,7 @@ export const RegisterPage = () => {
             <label className="form-label">Tên hiển thị</label>
             <div className="input-icon-wrap">
               <User size={16} className="input-icon" />
-              <input type="text" name="displayName" className="form-input" style={{ paddingLeft: '40px' }} placeholder="Tên của bạn" value={form.displayName} onChange={handleChange} required />
+              <input type="text" name="displayName" className="form-input" style={{ paddingLeft: '40px' }} placeholder="Tên của bạn" value={form.displayName} onChange={handleChange} required maxLength={50} />
             </div>
           </div>
           <div className="form-group">

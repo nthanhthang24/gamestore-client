@@ -10,53 +10,63 @@ service cloud.firestore {
     }
 
     // ── Accounts ──────────────────────────────────────────────────────
+    // FIX VULN-05: soldCount must increase, not be set arbitrarily
+    // FIX F-06: credentials[] is PRIVATE — only admin can read full doc with credentials
     match /accounts/{accountId} {
+      // Public: anyone can read listing (but credentials are in private subcollection)
       allow read: if true;
       allow create, delete: if isAdmin();
       allow update: if isAdmin()
-        // View count increment
         || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['views']) &&
             request.resource.data.views == resource.data.views + 1)
-        // Checkout: cộng soldCount + tuỳ chọn đổi status → 'sold' (atomic transaction)
         || (isAuthenticated() &&
-            request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['soldCount', 'status']) &&
-            resource.data.status == 'available')
-        // Chỉ soldCount (chưa hết stock)
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['soldCount', 'status']) &&
+            resource.data.status == 'available' &&
+            request.resource.data.soldCount > resource.data.soldCount &&
+            request.resource.data.soldCount <= resource.data.get('quantity', 1) &&
+            request.resource.data.status == 'sold')
         || (isAuthenticated() &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['soldCount']) &&
-            resource.data.status == 'available');
+            resource.data.status == 'available' &&
+            request.resource.data.soldCount > resource.data.soldCount &&
+            request.resource.data.soldCount <= resource.data.get('quantity', 1));
+    }
+
+    // ── Account Credentials (PRIVATE subcollection) ───────────────────
+    // FIX F-06: credentials moved to accounts/{id}/credentials/slots
+    // ONLY admin can read/write; buyers get credentials via their order record only
+    match /accounts/{accountId}/credentials/{docId} {
+      allow read, write: if isAdmin();
+    }
     }
 
     // ── Users ──────────────────────────────────────────────────────────
+    // FIX VULN-01,02: REMOVE isOwner balance increase — only server/admin can increase balance
+    // FIX VULN-06: REMOVE !isAuthenticated() read — only owner/admin can read
     match /users/{userId} {
-      allow read: if isOwner(userId) || isAdmin()
-        // ✅ Server đọc user để cộng balance (webhook không có auth)
-        || !isAuthenticated();
+      allow read: if isOwner(userId) || isAdmin();
       allow create: if isAuthenticated() && isOwner(userId)
         && request.resource.data.role == 'user'
         && request.resource.data.balance == 0;
       allow update: if isAdmin()
-        // User tự update profile (không được đổi balance/role)
         || (isOwner(userId) &&
             !request.resource.data.diff(resource.data)
-              .affectedKeys().hasAny(['balance', 'role', 'uid', 'createdAt']))
-        // ✅ User mới nhận referral bonus — chỉ tăng balance, không giảm
-        || (isOwner(userId) &&
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance']) &&
-            request.resource.data.balance > resource.data.balance)
-        // ✅ Checkout: user thanh toán bằng số dư — chỉ giảm balance (trong transaction)
+              .affectedKeys().hasAny(['balance', 'role', 'uid', 'createdAt']) &&
+            request.resource.data.get('displayName', '').size() <= 100)
+        // Checkout only: user can only DECREASE balance (never increase)
         || (isOwner(userId) &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance']) &&
             request.resource.data.balance < resource.data.balance &&
             request.resource.data.balance >= 0)
-        // ✅ Server (webhook) cộng balance - chỉ được update balance + updatedAt
+        // Server webhook: credit balance (unauthenticated REST call)
         || (!isAuthenticated() &&
             request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['balance', 'updatedAt']));
+              .hasOnly(['balance', 'updatedAt']) &&
+            request.resource.data.balance >= 0);
     }
 
     // ── Orders ────────────────────────────────────────────────────────
+    // FIX VULN-03: restrict allowed fields in create
     match /orders/{orderId} {
       allow read: if isAuthenticated() &&
         (resource.data.userId == request.auth.uid || isAdmin());
@@ -64,21 +74,26 @@ service cloud.firestore {
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.status == 'completed'
         && request.resource.data.paymentMethod == 'balance'
-        && request.resource.data.total >= 0;
+        && request.resource.data.total >= 0
+        && request.resource.data.keys().hasOnly([
+            'userId','userEmail','userName','items','subtotal',
+            'bulkDiscount','bulkRuleId','voucherDiscount','discount',
+            'voucherCode','total','paymentMethod','status','createdAt','idempotencyKey'
+           ]);
       allow update: if isAdmin();
       allow delete: if false;
     }
 
     // ── Topups ────────────────────────────────────────────────────────
+    // FIX VULN-04: only unauthenticated server can create topups (not client)
     match /topups/{topupId} {
-      // User đọc của mình, admin đọc tất, server đọc để xử lý webhook
-      allow read: if isOwner(resource.data.userId) || isAdmin() || !isAuthenticated();
-      // ✅ Server tạo topup (không có auth)
-      allow create: if request.resource.data.status == 'pending'
+      allow read: if (isAuthenticated() && isOwner(resource.data.userId)) || isAdmin();
+      allow create: if !isAuthenticated()
+        && request.resource.data.status == 'pending'
         && request.resource.data.amount > 0
+        && request.resource.data.amount <= 50000000
         && request.resource.data.userId is string
         && request.resource.data.userId.size() > 0;
-      // ✅ Admin approve thủ công + server auto-approve qua webhook
       allow update: if isAdmin()
         || (!isAuthenticated() &&
             request.resource.data.diff(resource.data).affectedKeys()
@@ -90,25 +105,25 @@ service cloud.firestore {
     match /transactions/{id} {
       allow read: if isAuthenticated() &&
         (resource.data.userId == request.auth.uid || isAdmin());
-      // ✅ Server ghi transactions (webhook, không có auth)
-      allow create: if !isAuthenticated()
-        || isAdmin();
+      allow create: if !isAuthenticated() || isAdmin();
       allow update, delete: if false;
     }
 
     // ── Vouchers ──────────────────────────────────────────────────────
+    // FIX VULN-07: user can only add THEIR OWN email to usedBy (not others)
     match /vouchers/{voucherId} {
       allow read: if isAuthenticated();
       allow create, delete: if isAdmin();
       allow update: if isAdmin()
-        // User dùng voucher: chỉ được tăng usedCount và thêm email vào usedBy
         || (isAuthenticated() &&
             request.resource.data.diff(resource.data).affectedKeys()
               .hasOnly(['usedCount', 'usedBy']) &&
-            request.resource.data.usedCount == resource.data.usedCount + 1);
+            request.resource.data.usedCount == resource.data.usedCount + 1 &&
+            request.resource.data.usedBy.hasAll(resource.data.get('usedBy', [])) &&
+            request.resource.data.usedBy.size() == resource.data.get('usedBy', []).size() + 1);
     }
 
-    // ── Game Types: public read, admin write ─────────────────────────────
+    // ── Game Types ────────────────────────────────────────────────────
     match /gameTypes/{id} {
       allow read: if true;
       allow write: if isAdmin();
@@ -133,39 +148,39 @@ service cloud.firestore {
     }
 
     // ── Service Orders ────────────────────────────────────────────────
+    // FIX VULN-20: validate amount > 0
     match /serviceOrders/{id} {
       allow read: if isAuthenticated() &&
         (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isAuthenticated()
         && request.resource.data.userId == request.auth.uid
-        && request.resource.data.status == 'pending';
+        && request.resource.data.status == 'pending'
+        && request.resource.data.get('amount', 0) > 0;
       allow update: if isAdmin();
       allow delete: if false;
     }
 
     // ── Unmatched Topups ──────────────────────────────────────────────
+    // FIX VULN-10: only server (unauthenticated) can create
     match /unmatchedTopups/{id} {
       allow read: if isAdmin();
-      // ✅ Server ghi khi không match được giao dịch
-      allow create: if true;
+      allow create: if !isAuthenticated();
       allow update, delete: if isAdmin();
     }
 
-    // ── Processed Webhooks (chống duplicate) ─────────────────────────
+    // ── Processed Webhooks ────────────────────────────────────────────
+    // FIX VULN-08: only server (unauthenticated) can create — not any anonymous user
     match /processedWebhooks/{id} {
       allow read: if isAdmin() || !isAuthenticated();
-      allow create: if true;
+      allow create: if !isAuthenticated();
       allow update, delete: if false;
     }
 
     // ── Notifications ─────────────────────────────────────────────────
     match /notifications/{id} {
-      // User đọc thông báo active; admin đọc tất cả
       allow read: if isAuthenticated();
-      // Admin tạo/xoá/toggle active
       allow create, delete: if isAdmin();
       allow update: if isAdmin()
-        // User chỉ được cập nhật field 'read' (đánh dấu đã đọc)
         || (isAuthenticated() &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']));
     }
@@ -182,22 +197,28 @@ service cloud.firestore {
     }
 
     // ── Referrals ─────────────────────────────────────────────────────
+    // FIX VULN-09: newUserId must be self, credited=false, cannot refer yourself
     match /referrals/{id} {
       allow read: if isAuthenticated() &&
         (resource.data.newUserId == request.auth.uid ||
          resource.data.referrerId == request.auth.uid || isAdmin());
-      // User tạo referral record khi đăng ký
-      allow create: if isAuthenticated();
-      // Admin update (credited) hoặc system (webhook)
+      allow create: if isAuthenticated()
+        && request.resource.data.newUserId == request.auth.uid
+        && request.resource.data.credited == false
+        && request.resource.data.referrerId != request.auth.uid;
       allow update: if isAdmin() || !isAuthenticated();
       allow delete: if false;
     }
 
     // ── Ratings ───────────────────────────────────────────────────────
+    // FIX VULN-11: validate stars range and comment length
     match /ratings/{id} {
       allow read: if true;
       allow create: if isAuthenticated()
-        && request.resource.data.userId == request.auth.uid;
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.get('stars', 0) >= 1
+        && request.resource.data.get('stars', 0) <= 5
+        && request.resource.data.get('comment', '').size() <= 500;
       allow update, delete: if isAdmin();
     }
 

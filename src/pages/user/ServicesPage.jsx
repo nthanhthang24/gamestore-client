@@ -277,6 +277,10 @@ const ServicesPage = () => {
         toast.error('Bạn đang gửi quá nhiều yêu cầu. Vui lòng đợi 2 phút.', T);
         return;
       }
+      const verifiedAmount = selectedService.priceType === 'fixed'
+        ? (selectedService.price || 0) * (formData.quantity || 1)
+        : (formData.estimatedPrice || 0); // admin quotes variable pricing
+
       await addDoc(collection(db, 'serviceOrders'), {
         serviceId: selectedService.id || selectedService.type,
         serviceName: selectedService.name,
@@ -285,9 +289,8 @@ const ServicesPage = () => {
         userEmail: currentUser.email,
         userName: userProfile?.displayName || currentUser.email,
         ...formData,
-        estimatedPrice: selectedService.priceType === 'fixed'
-          ? (selectedService.price || 0) * (formData.quantity || 1)
-          : null,
+        amount: verifiedAmount, // verified server-readable amount
+        estimatedPrice: verifiedAmount,
         priceType: selectedService.priceType,
         status: 'pending',
         createdAt: serverTimestamp(),

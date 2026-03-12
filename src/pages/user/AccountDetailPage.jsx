@@ -59,7 +59,7 @@ const AccountDetailPage = ({ onAddToCart }) => {
   const quantity   = account.quantity   != null ? account.quantity   : 1;
   const soldCount  = account.soldCount  != null ? account.soldCount  : 0;
   const stock      = Math.max(0, quantity - soldCount); // actual remaining stock
-  const maxQty     = Math.min(stock, 10); // cap at 10 per purchase
+  const maxQty     = stock; // no artificial cap — let cart limit handle it
   const isSold     = account.status === 'sold' || stock <= 0;
 
   const salePrice = activeFlashSale ? getSalePrice(account.price, account.gameType) : null;

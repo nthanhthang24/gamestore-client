@@ -6,10 +6,28 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 
+const SESSION_KEY = 'gs_voucher';
+
+const loadVoucherFromSession = () => {
+  try {
+    const v = sessionStorage.getItem(SESSION_KEY);
+    return v ? JSON.parse(v) : null;
+  } catch { return null; }
+};
+
+const saveVoucherToSession = (v) => {
+  try {
+    if (v) sessionStorage.setItem(SESSION_KEY, JSON.stringify(v));
+    else sessionStorage.removeItem(SESSION_KEY);
+  } catch {}
+};
+
 export const useVoucher = () => {
-  const [voucher, setVoucher]           = useState(null);
+  const [voucher, _setVoucher]          = useState(() => loadVoucherFromSession());
   const [voucherError, setVoucherError] = useState('');
   const [voucherLoading, setVoucherLoading] = useState(false);
+
+  const setVoucher = (v) => { _setVoucher(v); saveVoucherToSession(v); };
 
   const applyVoucher = async (code, orderTotal, userEmail) => {
     if (!code.trim()) { setVoucherError('Nhập mã voucher'); return false; }
