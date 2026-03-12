@@ -18,6 +18,77 @@ const statusConfig = {
   failed:   { label: 'Thất bại',   badge: 'badge-danger',  icon: <XCircle size={13} /> },
 };
 
+// ── Bank QR Modal ──────────────────────────────────
+const BankModal = ({ data, onClose, onCopy, copied }) => (
+  <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className="payment-modal card">
+      <div className="pm-header">
+        <div className="pm-logo bank"><Building2 size={20} /> Chuyển khoản ngân hàng</div>
+        <button className="pm-close" onClick={onClose}>✕</button>
+      </div>
+
+      <div className="pm-amount bank">
+        <span>Số tiền cần chuyển</span>
+        <strong>{data.amount?.toLocaleString('vi-VN')}đ</strong>
+      </div>
+
+      {/* VietQR */}
+      <div className="pm-qr" style={{ background: '#fff', borderRadius: 12, padding: 16, marginBottom: 16 }}>
+        <img src={data.qrUrl} alt="VietQR" className="qr-img" style={{ width: 200, height: 200 }} />
+        <p style={{ fontSize: '12px', color: '#0066cc', textAlign: 'center', marginTop: '6px', fontWeight: 600 }}>
+          Quét bằng app ngân hàng bất kỳ
+        </p>
+      </div>
+
+      {/* Thông tin TK */}
+      {data.method === 'va' && (
+        <div style={{ background: 'rgba(0,255,136,0.08)', border: '1px solid rgba(0,255,136,0.3)', borderRadius: 8, padding: '8px 12px', marginBottom: 10, fontSize: 12, color: 'var(--success)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          ✅ <strong>VA riêng</strong> — Máy chủ tự động xác nhận, không cần nhập nội dung chuyển khoản
+        </div>
+      )}
+      {data.method === 'static' && (
+        <div style={{ background: 'rgba(255,71,87,0.08)', border: '1px solid rgba(255,71,87,0.3)', borderRadius: 8, padding: '8px 12px', marginBottom: 10, fontSize: 12, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          ⚠️ <strong>Bắt buộc nhập đúng nội dung</strong> chuyển khoản bên dưới để hệ thống nhận dạng
+        </div>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: 16 }}>
+        {[
+          { label: 'Ngân hàng', value: 'BIDV', key: 'bank' },
+          { label: data.method === 'va' ? '🔑 Số TK ảo (VA)' : 'Số tài khoản', value: data.accountNumber, key: 'acc', highlight: data.method === 'va' },
+          { label: 'Chủ tài khoản', value: data.accountName, key: 'name' },
+          { label: 'Số tiền', value: data.amount?.toLocaleString('vi-VN') + 'đ', key: 'amt' },
+          ...(data.method !== 'va' ? [{ label: '⚠️ Nội dung CK', value: data.transferContent, key: 'content', highlight: true }] : []),
+          ...(data.expiredAt ? [{ label: '⏱ Hết hạn', value: new Date(data.expiredAt).toLocaleTimeString('vi-VN'), key: 'exp' }] : []),
+        ].map(row => (
+          <div key={row.key} className={`bank-row ${row.highlight ? 'highlight' : ''}`}>
+            <span className="bank-label">{row.label}</span>
+            <div className="bank-value-wrap">
+              <span className="bank-value" style={row.highlight ? { color: 'var(--accent)', fontFamily: 'Share Tech Mono, monospace' } : {}}>
+                {row.value}
+              </span>
+              <button className="copy-btn" onClick={() => onCopy(row.value, row.key)}>
+                {copied === row.key
+                  ? <CheckCircle size={13} style={{ color: 'var(--success)' }} />
+                  : <Copy size={13} />}
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="pm-waiting">
+        <div className="waiting-dot" style={{ background: '#0066cc', boxShadow: '0 0 0 0 rgba(0,102,204,0.4)' }} />
+        <span>Đang chờ xác nhận từ máy chủ...</span>
+        <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+          {data.method === 'va'
+            ? '✅ VA riêng — tự động xác nhận 5-15 giây sau chuyển khoản'
+            : '⚠️ Nhớ nhập đúng nội dung CK — tự động cộng 5-30 giây'}
+        </span>
+      </div>
+    </div>
+  </div>
+);
+
 const TopupPage = () => {
   const { currentUser, userProfile, fetchUserProfile } = useAuth();
   const navigate = useNavigate();
@@ -354,75 +425,5 @@ const TopupPage = () => {
   );
 };
 
-// ── Bank QR Modal ──────────────────────────────────
-const BankModal = ({ data, onClose, onCopy, copied }) => (
-  <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-    <div className="payment-modal card">
-      <div className="pm-header">
-        <div className="pm-logo bank"><Building2 size={20} /> Chuyển khoản ngân hàng</div>
-        <button className="pm-close" onClick={onClose}>✕</button>
-      </div>
-
-      <div className="pm-amount bank">
-        <span>Số tiền cần chuyển</span>
-        <strong>{data.amount?.toLocaleString('vi-VN')}đ</strong>
-      </div>
-
-      {/* VietQR */}
-      <div className="pm-qr" style={{ background: '#fff', borderRadius: 12, padding: 16, marginBottom: 16 }}>
-        <img src={data.qrUrl} alt="VietQR" className="qr-img" style={{ width: 200, height: 200 }} />
-        <p style={{ fontSize: '12px', color: '#0066cc', textAlign: 'center', marginTop: '6px', fontWeight: 600 }}>
-          Quét bằng app ngân hàng bất kỳ
-        </p>
-      </div>
-
-      {/* Thông tin TK */}
-      {data.method === 'va' && (
-        <div style={{ background: 'rgba(0,255,136,0.08)', border: '1px solid rgba(0,255,136,0.3)', borderRadius: 8, padding: '8px 12px', marginBottom: 10, fontSize: 12, color: 'var(--success)', display: 'flex', alignItems: 'center', gap: 6 }}>
-          ✅ <strong>VA riêng</strong> — Máy chủ tự động xác nhận, không cần nhập nội dung chuyển khoản
-        </div>
-      )}
-      {data.method === 'static' && (
-        <div style={{ background: 'rgba(255,71,87,0.08)', border: '1px solid rgba(255,71,87,0.3)', borderRadius: 8, padding: '8px 12px', marginBottom: 10, fontSize: 12, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 6 }}>
-          ⚠️ <strong>Bắt buộc nhập đúng nội dung</strong> chuyển khoản bên dưới để hệ thống nhận dạng
-        </div>
-      )}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: 16 }}>
-        {[
-          { label: 'Ngân hàng', value: 'BIDV', key: 'bank' },
-          { label: data.method === 'va' ? '🔑 Số TK ảo (VA)' : 'Số tài khoản', value: data.accountNumber, key: 'acc', highlight: data.method === 'va' },
-          { label: 'Chủ tài khoản', value: data.accountName, key: 'name' },
-          { label: 'Số tiền', value: data.amount?.toLocaleString('vi-VN') + 'đ', key: 'amt' },
-          ...(data.method !== 'va' ? [{ label: '⚠️ Nội dung CK', value: data.transferContent, key: 'content', highlight: true }] : []),
-          ...(data.expiredAt ? [{ label: '⏱ Hết hạn', value: new Date(data.expiredAt).toLocaleTimeString('vi-VN'), key: 'exp' }] : []),
-        ].map(row => (
-          <div key={row.key} className={`bank-row ${row.highlight ? 'highlight' : ''}`}>
-            <span className="bank-label">{row.label}</span>
-            <div className="bank-value-wrap">
-              <span className="bank-value" style={row.highlight ? { color: 'var(--accent)', fontFamily: 'Share Tech Mono, monospace' } : {}}>
-                {row.value}
-              </span>
-              <button className="copy-btn" onClick={() => onCopy(row.value, row.key)}>
-                {copied === row.key
-                  ? <CheckCircle size={13} style={{ color: 'var(--success)' }} />
-                  : <Copy size={13} />}
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="pm-waiting">
-        <div className="waiting-dot" style={{ background: '#0066cc', boxShadow: '0 0 0 0 rgba(0,102,204,0.4)' }} />
-        <span>Đang chờ xác nhận từ máy chủ...</span>
-        <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
-          {data.method === 'va'
-            ? '✅ VA riêng — tự động xác nhận 5-15 giây sau chuyển khoản'
-            : '⚠️ Nhớ nhập đúng nội dung CK — tự động cộng 5-30 giây'}
-        </span>
-      </div>
-    </div>
-  </div>
-);
 
 export default TopupPage;

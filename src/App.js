@@ -911,10 +911,7 @@ const UserOrdersPage = () => {
                             <div><span style={{ color: 'var(--text-muted)', fontSize: 11 }}>Username:</span><br/><strong style={{ fontFamily: 'monospace' }}>{item.loginUsername}</strong></div>
                             <button onClick={() => { navigator.clipboard.writeText(item.loginUsername); }} style={{ background:'none', border:'1px solid var(--border)', borderRadius:4, padding:'2px 8px', cursor:'pointer', fontSize:11, color:'var(--text-muted)' }}>Copy</button>
                           </div>
-                          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                            <div><span style={{ color: 'var(--text-muted)', fontSize: 11 }}>Password:</span><br/><strong style={{ fontFamily: 'monospace', color: 'var(--accent)' }}>{item.loginPassword}</strong></div>
-                            <button onClick={() => { navigator.clipboard.writeText(item.loginPassword); }} style={{ background:'none', border:'1px solid var(--border)', borderRadius:4, padding:'2px 8px', cursor:'pointer', fontSize:11, color:'var(--text-muted)' }}>Copy</button>
-                          </div>
+                          <PasswordField password={item.loginPassword} />
                           {item.loginEmail && <div style={{ gridColumn: '1/-1' }}><span style={{ color: 'var(--text-muted)', fontSize: 11 }}>Email:</span><br/><strong style={{ fontFamily: 'monospace' }}>{item.loginEmail}</strong></div>}
                           {item.loginNote && <div style={{ gridColumn: '1/-1' }}><span style={{ color: 'var(--text-muted)', fontSize: 11 }}>Ghi chú:</span><br/><span style={{ color: 'var(--text-secondary)' }}>{item.loginNote}</span></div>}
                         </div>

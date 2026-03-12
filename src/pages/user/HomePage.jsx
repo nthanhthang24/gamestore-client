@@ -23,6 +23,14 @@ const STATS = [
   { icon: <Clock size={24} />, value: '24/7', label: 'Hỗ trợ', color: 'var(--accent2)' },
 ];
 
+// Inline icon — must be defined BEFORE HomePage
+const ShoppingCartIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
+    <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
+  </svg>
+);
+
 const HomePage = ({ onAddToCart, cart = [] }) => {
   const { gameTypes: dynamicGameTypes } = useGameTypes();
   // Thêm "Tất cả" vào đầu với icon Gamepad — memoized để tránh re-render
@@ -300,13 +308,5 @@ const HomePage = ({ onAddToCart, cart = [] }) => {
     </div>
   );
 };
-
-// Inline icon
-const ShoppingCartIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
-    <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
-  </svg>
-);
 
 export default HomePage;

@@ -18,7 +18,7 @@ const AccountDetailPage = ({ onAddToCart }) => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { currentUser } = useAuth();
-  const { getSalePrice, isInFlashSale, activeFlashSale } = useFlashSale();
+  const { getSalePrice, isInFlashSale, activeFlashSale, countdown } = useFlashSale();
   const [account, setAccount]   = useState(null);
   const [loading, setLoading]   = useState(true);
   const [currentImg, setCurrentImg] = useState(0);

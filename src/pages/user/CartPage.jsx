@@ -321,7 +321,7 @@ const CartPage = ({ cart, setCart }) => {
               _retryCount:     retry + 1,
             });
             orderSaved = true;
-            console.log(`✅ Order saved on retry ${retry + 1}`);
+            // Order saved on retry
             break;
           } catch (retryErr) {
             console.error(`‼️ Order write retry ${retry + 1} failed:`, retryErr);
