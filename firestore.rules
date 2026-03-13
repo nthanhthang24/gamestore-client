@@ -19,7 +19,8 @@ service cloud.firestore {
       allow read: if true;
       allow create, delete: if isAdmin();
       allow update: if isAdmin()
-        || (isServer() &&
+        // Server dùng user token để update soldCount sau khi mua
+        || (isAuthenticated() &&
             request.resource.data.diff(resource.data)
               .affectedKeys().hasOnly(['soldCount', 'status']))
         || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['views']) &&
@@ -28,7 +29,8 @@ service cloud.firestore {
 
     // Credentials: admin write, server READ ONLY (để inject vào order)
     match /accounts/{accountId}/credentials/{docId} {
-      allow read:  if isAdmin() || isServer();
+      // Server dùng userToken (buyer) để đọc khi inject credentials vào order
+      allow read:  if isAdmin() || isAuthenticated();
       allow write: if isAdmin();
     }
 
@@ -78,7 +80,7 @@ service cloud.firestore {
     // ══════════════════════════════════════════════════════════════════════
     match /orders/{orderId} {
       allow read: if isAuthenticated() &&
-        (resource.data.userId == request.auth.uid || isAdmin());
+        (resource.data.userId == request.auth.uid || isAdmin() || isServer());
       // FIX D1 CRITICAL: Verify user's balance was actually deducted before creating order.
       // After CartPage's runTransaction deducts balance, user.balance = prev - total.
       // We check: user's current balance + order.total <= user's pre-purchase balance cap.
@@ -122,7 +124,8 @@ service cloud.firestore {
       // Nhưng server không biết userId khi update — server verify userId ở code level
       // Rule: isServer() + không được xóa userId + không thay đổi total
       allow update: if isAdmin()
-        || (isServer() &&
+        // User tự update order của họ với credentials (server dùng userToken)
+        || (isAuthenticated() && resource.data.userId == request.auth.uid &&
             request.resource.data.diff(resource.data)
               .affectedKeys().hasOnly(['items', 'status', '_soldCountUpdated', '_credentialsInjected']) &&
             request.resource.data.get('userId', '') == resource.data.userId &&
@@ -150,7 +153,8 @@ service cloud.firestore {
                 'transferContent','createdAt'
                ]));
       allow update: if isAdmin()
-        || (isServer() &&
+        // Server dùng user token để update soldCount sau khi mua
+        || (isAuthenticated() &&
             request.resource.data.diff(resource.data)
               .affectedKeys().hasOnly(['status', 'processedAt', 'sePayId',
                                        'autoApproved', 'approvedAt', 'gateway',
@@ -163,7 +167,7 @@ service cloud.firestore {
     // ══════════════════════════════════════════════════════════════════════
     match /transactions/{id} {
       allow read: if isAuthenticated() &&
-        (resource.data.userId == request.auth.uid || isAdmin());
+        (resource.data.userId == request.auth.uid || isAdmin() || isServer());
       allow create: if isAdminOrServer();
       allow update, delete: if false;
     }
@@ -205,7 +209,7 @@ service cloud.firestore {
     // ══════════════════════════════════════════════════════════════════════
     match /serviceOrders/{id} {
       allow read: if isAuthenticated() &&
-        (resource.data.userId == request.auth.uid || isAdmin());
+        (resource.data.userId == request.auth.uid || isAdmin() || isServer());
       allow create: if isAuthenticated()
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.status == 'pending'
@@ -257,7 +261,7 @@ service cloud.firestore {
     // ══════════════════════════════════════════════════════════════════════
     match /tickets/{id} {
       allow read: if isAuthenticated() &&
-        (resource.data.userId == request.auth.uid || isAdmin());
+        (resource.data.userId == request.auth.uid || isAdmin() || isServer());
       allow create: if isAuthenticated()
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.status == 'open'
@@ -265,7 +269,7 @@ service cloud.firestore {
         && request.resource.data.get('orderId', '').size() <= 64
         && request.resource.data.get('description', '').size() >= 10
         && request.resource.data.get('description', '').size() <= 2000
-        && request.resource.data.get('type', '') in ['warranty', 'wrong_account', 'other']
+        && request.resource.data.get('type', '') in ['warranty', 'wrong_account', 'other', 'refund', 'support']
         // FIX BUG#13: verify orderId belongs to this user
         && get(/databases/$(database)/documents/orders/$(request.resource.data.orderId)).data.userId
             == request.auth.uid;
