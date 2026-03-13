@@ -65,29 +65,6 @@ const OrderDetailPage = () => {
     return null;
   };
 
-  // autoRetry: silent retry khi vào trang — không show toast lỗi, chỉ show khi thành công
-  // Backoff: 2s → 5s → 10s → 20s → dừng
-  const autoRetry = React.useCallback(async (attempt = 0) => {
-    if (attempt >= 4) return; // max 4 lần auto
-    const delays = [2000, 5000, 10000, 20000];
-    await new Promise(r => setTimeout(r, delays[attempt]));
-    // Kiểm tra lại Firestore trước (có thể đã inject xong từ lúc khác)
-    const orderData = await reloadOrder();
-    if (orderData?._credentialsInjected) {
-      toast.success('✅ Đã nhận thông tin đăng nhập!', TS);
-      return;
-    }
-    const result = await callConfirm();
-    if (result.ok) {
-      await reloadOrder();
-      toast.success('✅ Đã nhận thông tin đăng nhập!', TS);
-    } else if (result.error === 'timeout' || result.error === 'network') {
-      // Server chưa thức — thử lại lần tiếp
-      autoRetry(attempt + 1);
-    }
-    // Nếu lỗi khác (403, 409...) thì dừng — user bấm thủ công
-  }, [id]);
-
   // manualRetry: user bấm "Thử lấy lại" — show đầy đủ toast
   const retryCredentialInject = async () => {
     setRetrying(true);
@@ -125,13 +102,7 @@ const OrderDetailPage = () => {
       const orderData = { id:snap.id, ...snap.data() };
       setOrder(orderData);
 
-      // AUTO-RETRY: fire khi chưa inject, HOẶC đã inject nhưng allCredentials rỗng (đơn cũ bị inject sai)
-      const hasCredentials = (orderData.items || []).some(i =>
-        i.loginUsername || i.attachmentContent || (i.allCredentials?.length > 0)
-      );
-      if (orderData.status === 'completed' && (!orderData._credentialsInjected || !hasCredentials)) {
-        autoRetry(0);
-      }
+      // Nếu chưa có credentials (hiếm — server chưa inject kịp), user bấm "Thử lấy lại" thủ công
 
       // load tickets for this order, sorted newest first
       const tSnap = await getDocs(query(

@@ -381,6 +381,9 @@ const CartPage = ({ cart, setCart }) => {
           }
         };
 
+        // CHỜ server inject credentials — không navigate trước khi có credentials
+        // Nếu server timeout (Render cold start ~30s) thì vẫn navigate nhưng
+        // OrderDetailPage có auto-retry để lấy lại
         try {
           const confirmResp = await confirmWithTimeout();
           if (!confirmResp.ok) {
@@ -389,21 +392,23 @@ const CartPage = ({ cart, setCart }) => {
             if (errCode === 'PRICE_MISMATCH' || errCode === 'INVALID_IKEY') {
               throw new Error('Đơn hàng không hợp lệ — vui lòng đặt lại. (' + errCode + ')');
             }
-            console.warn('checkout/confirm server error (non-critical):', errData);
+            // Server lỗi khác — vẫn navigate, OrderDetailPage auto-retry
+            console.warn('checkout/confirm server error:', errData);
           }
+          // ✅ Server đã inject credentials — navigate ngay
         } catch (scErr) {
           if (scErr.message.includes('PRICE_MISMATCH') || scErr.message.includes('INVALID_IKEY')) {
             throw scErr;
           }
-          // Non-critical (timeout / network) — OrderDetailPage sẽ auto-retry khi user vào xem đơn
-          console.warn('soldCount server update failed (non-critical, will retry on OrderDetail):', scErr.message);
+          // Timeout / network — navigate nhưng OrderDetailPage sẽ auto-retry
+          console.warn('checkout/confirm timeout/network:', scErr.message);
         }
       }
 
       await fetchUserProfile(currentUser.uid);
       setCart([]);
-      toast.success('🎉 Mua hàng thành công! Kiểm tra đơn hàng của bạn.', { duration: 5000, ...TS });
-      setTimeout(() => navigate('/orders'), 400);
+      toast.success('🎉 Mua hàng thành công! Đang tải thông tin tài khoản...', { duration: 5000, ...TS });
+      navigate(`/orders/${orderId}`);  // navigate thẳng vào đơn hàng
 
     } catch (err) {
       console.error('Checkout error:', err);
