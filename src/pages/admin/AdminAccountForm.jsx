@@ -506,7 +506,7 @@ const AdminAccountForm = () => {
               </div>
               {form.quantity > 1 && (
                 <div className="qty-info-bar">
-                  <span>📦 Listing này có <strong>{form.quantity} tài khoản</strong> — mỗi slot sẽ được giao cho 1 buyer riêng.</span>
+                  <span>📦 Listing này gồm <strong>{form.quantity} tài khoản</strong> — tất cả sẽ giao cho 1 buyer khi mua.</span>
                 </div>
               )}
               <div className="form-group">

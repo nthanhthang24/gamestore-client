@@ -233,22 +233,31 @@ const OrderDetailPage = () => {
         </div>
 
         {/* Download all button — show when has credentials (1 item or multiple) */}
-        {(order.items||[]).some(i => i.loginUsername || i.attachmentContent || i.attachmentUrl) && (() => {
+        {(order.items||[]).some(i => i.loginUsername || i.attachmentContent || (i.allCredentials?.length > 0)) && (() => {
           const downloadAll = () => {
             const lines = [];
-            (order.items||[]).forEach((item, idx) => {
-              if (!item.loginUsername && !item.attachmentContent) return;
-              lines.push(`========== Slot ${idx + 1}: ${item.title} ==========`);
-              if (item.loginUsername) lines.push(`Username : ${item.loginUsername}`);
-              if (item.loginPassword) lines.push(`Password : ${item.loginPassword}`);
-              if (item.loginEmail)    lines.push(`Email    : ${item.loginEmail}`);
-              if (item.loginNote)     lines.push(`Ghi chú  : ${item.loginNote}`);
-              if (item.attachmentContent) {
-                lines.push(`--- File đính kèm (${item.attachmentName || 'thongtin.txt'}) ---`);
-                lines.push(item.attachmentContent);
-                lines.push('--- Kết thúc file đính kèm ---');
+            (order.items||[]).forEach((item, itemIdx) => {
+              // allCredentials = tất cả accounts trong combo, fallback về slot đơn lẻ
+              const creds = item.allCredentials?.length
+                ? item.allCredentials
+                : (item.loginUsername || item.attachmentContent ? [item] : []);
+              if (!creds.length) return;
+              if ((order.items||[]).length > 1) {
+                lines.push(`========== Sản phẩm ${itemIdx + 1}: ${item.title} ==========`);
               }
-              lines.push('');
+              creds.forEach((c, ci) => {
+                if (creds.length > 1) lines.push(`--- Account ${ci + 1}/${creds.length} ---`);
+                if (c.loginUsername) lines.push(`Username : ${c.loginUsername}`);
+                if (c.loginPassword) lines.push(`Password : ${c.loginPassword}`);
+                if (c.loginEmail)    lines.push(`Email    : ${c.loginEmail}`);
+                if (c.loginNote)     lines.push(`Ghi chú  : ${c.loginNote}`);
+                if (c.attachmentContent) {
+                  lines.push(`--- File đính kèm (${c.attachmentName || 'thongtin.txt'}) ---`);
+                  lines.push(c.attachmentContent);
+                  lines.push('--- Kết thúc file đính kèm ---');
+                }
+                lines.push('');
+              });
             });
             const blob = new Blob([lines.join('\r\n')], { type: 'text/plain;charset=utf-8' });
             const url = URL.createObjectURL(blob);
@@ -261,7 +270,9 @@ const OrderDetailPage = () => {
           return (
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8,padding:'10px 16px',background:'rgba(0,212,255,0.06)',borderRadius:10,border:'1px solid rgba(0,212,255,0.2)'}}>
               <span style={{fontSize:13,color:'var(--text-secondary)'}}>
-                <strong style={{color:'var(--accent)'}}>{(order.items||[]).length} tài khoản</strong> trong đơn hàng này
+                <strong style={{color:'var(--accent)'}}>
+                  {(order.items||[]).reduce((sum,i) => sum + (i.allCredentials?.length || (i.loginUsername ? 1 : 0)), 0)} tài khoản
+                </strong> trong đơn hàng này
               </span>
               <button onClick={downloadAll}
                 style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:13,color:'#fff',cursor:'pointer',padding:'6px 14px',borderRadius:6,background:'rgba(0,212,255,0.18)',border:'1px solid rgba(0,212,255,0.4)',fontWeight:600,whiteSpace:'nowrap'}}>
@@ -328,50 +339,73 @@ const OrderDetailPage = () => {
 
                 {isExpanded && (
                   <div style={{padding:'14px 16px'}}>
-                    {item.loginUsername && (
-                      <div style={{background:'rgba(0,212,255,0.06)',border:'1px solid rgba(0,212,255,0.2)',borderRadius:8,padding:'12px 16px',marginBottom:10}}>
-                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
-                          <div style={{color:'var(--accent)',fontWeight:700,fontSize:11,textTransform:'uppercase'}}>🔑 Thông tin đăng nhập</div>
-                          <button onClick={copyAll} style={{background:'rgba(0,212,255,0.1)',border:'1px solid rgba(0,212,255,0.3)',borderRadius:5,padding:'3px 10px',cursor:'pointer',fontSize:11,color:'var(--accent)',display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
-                            <Copy size={11}/> Copy tất cả
-                          </button>
-                        </div>
-                        <div style={{display:'grid',gap:8}}>
-                          {[['Username',item.loginUsername],['Password',item.loginPassword],['Email',item.loginEmail],['Ghi chú',item.loginNote]]
-                            .filter(([,v])=>v).map(([lbl,val])=>(
-                              <div key={lbl} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}}>
-                                <div>
-                                  <div style={{fontSize:11,color:'var(--text-muted)'}}>{lbl}</div>
-                                  <div style={{fontFamily:'monospace',fontWeight:600,color:lbl==='Password'?'var(--accent)':'inherit',fontSize:14}}>{val}</div>
-                                </div>
-                                {lbl!=='Ghi chú' && <button onClick={()=>copyText(val)} style={{background:'none',border:'1px solid var(--border)',borderRadius:5,padding:'3px 10px',cursor:'pointer',fontSize:11,color:'var(--text-muted)',display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
+                    {/* Render từng account trong combo */}
+                    {(() => {
+                      const creds = item.allCredentials?.length
+                        ? item.allCredentials
+                        : (item.loginUsername || item.attachmentContent ? [item] : []);
+                      if (!creds.length) return null;
+                      return creds.map((c, ci) => (
+                        <div key={ci} style={{marginBottom: creds.length > 1 ? 10 : 0}}>
+                          {creds.length > 1 && (
+                            <div style={{fontSize:11,color:'var(--text-muted)',fontWeight:700,marginBottom:6,padding:'4px 8px',background:'rgba(255,255,255,0.04)',borderRadius:4,display:'inline-block'}}>
+                              Account {ci + 1} / {creds.length}
+                            </div>
+                          )}
+                          {c.loginUsername && (
+                            <div style={{background:'rgba(0,212,255,0.06)',border:'1px solid rgba(0,212,255,0.2)',borderRadius:8,padding:'12px 16px',marginBottom:8}}>
+                              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+                                <div style={{color:'var(--accent)',fontWeight:700,fontSize:11,textTransform:'uppercase'}}>🔑 Thông tin đăng nhập</div>
+                                <button onClick={()=>{
+                                  const parts=[];
+                                  if(c.loginUsername) parts.push(`Username: ${c.loginUsername}`);
+                                  if(c.loginPassword) parts.push(`Password: ${c.loginPassword}`);
+                                  if(c.loginEmail)    parts.push(`Email: ${c.loginEmail}`);
+                                  if(c.loginNote)     parts.push(`Ghi chú: ${c.loginNote}`);
+                                  copyText(parts.join('\n'));
+                                }} style={{background:'rgba(0,212,255,0.1)',border:'1px solid rgba(0,212,255,0.3)',borderRadius:5,padding:'3px 10px',cursor:'pointer',fontSize:11,color:'var(--accent)',display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
                                   <Copy size={11}/> Copy
-                                </button>}
+                                </button>
                               </div>
-                            ))}
+                              <div style={{display:'grid',gap:8}}>
+                                {[['Username',c.loginUsername],['Password',c.loginPassword],['Email',c.loginEmail],['Ghi chú',c.loginNote]]
+                                  .filter(([,v])=>v).map(([lbl,val])=>(
+                                    <div key={lbl} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}}>
+                                      <div>
+                                        <div style={{fontSize:11,color:'var(--text-muted)'}}>{lbl}</div>
+                                        <div style={{fontFamily:'monospace',fontWeight:600,color:lbl==='Password'?'var(--accent)':'inherit',fontSize:14}}>{val}</div>
+                                      </div>
+                                      {lbl!=='Ghi chú' && <button onClick={()=>copyText(val)} style={{background:'none',border:'1px solid var(--border)',borderRadius:5,padding:'3px 10px',cursor:'pointer',fontSize:11,color:'var(--text-muted)',display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
+                                        <Copy size={11}/> Copy
+                                      </button>}
+                                    </div>
+                                  ))}
+                              </div>
+                            </div>
+                          )}
+                          {(c.attachmentContent || c.attachmentUrl) && (
+                            <div style={{background:'rgba(46,213,115,0.07)',border:'1px solid rgba(46,213,115,0.25)',borderRadius:8,padding:'12px 16px',marginBottom:8}}>
+                              <div style={{fontSize:11,color:'#2ed573',fontWeight:700,textTransform:'uppercase',marginBottom:8}}>📎 File đính kèm</div>
+                              {c.attachmentContent ? (
+                                <button onClick={()=>{
+                                  const blob = new Blob([c.attachmentContent],{type:'text/plain;charset=utf-8'});
+                                  const url = URL.createObjectURL(blob);
+                                  const a = document.createElement('a'); a.href=url; a.download=c.attachmentName||'thongtin.txt'; a.click();
+                                  URL.revokeObjectURL(url);
+                                }} style={{display:'inline-flex',alignItems:'center',gap:8,fontSize:13,color:'#fff',cursor:'pointer',padding:'8px 16px',borderRadius:6,background:'rgba(46,213,115,0.2)',border:'1px solid rgba(46,213,115,0.4)',fontWeight:600}}>
+                                  <Download size={14}/> Tải: {c.attachmentName||'thongtin.txt'}
+                                </button>
+                              ) : (
+                                <a href={c.attachmentUrl} target="_blank" rel="noreferrer"
+                                  style={{display:'inline-flex',alignItems:'center',gap:8,fontSize:13,color:'#fff',textDecoration:'none',padding:'8px 16px',borderRadius:6,background:'rgba(46,213,115,0.2)',border:'1px solid rgba(46,213,115,0.4)',fontWeight:600}}>
+                                  <Download size={14}/> Tải: {c.attachmentName||'thongtin.txt'}
+                                </a>
+                              )}
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    )}
-                    {(item.attachmentContent || item.attachmentUrl) && (
-                      <div style={{background:'rgba(46,213,115,0.07)',border:'1px solid rgba(46,213,115,0.25)',borderRadius:8,padding:'12px 16px'}}>
-                        <div style={{fontSize:11,color:'#2ed573',fontWeight:700,textTransform:'uppercase',marginBottom:8}}>📎 File đính kèm</div>
-                        {item.attachmentContent ? (
-                          <button onClick={()=>{
-                            const blob = new Blob([item.attachmentContent],{type:'text/plain;charset=utf-8'});
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement('a'); a.href=url; a.download=item.attachmentName||'thongtin.txt'; a.click();
-                            URL.revokeObjectURL(url);
-                          }} style={{display:'inline-flex',alignItems:'center',gap:8,fontSize:13,color:'#fff',cursor:'pointer',padding:'8px 16px',borderRadius:6,background:'rgba(46,213,115,0.2)',border:'1px solid rgba(46,213,115,0.4)',fontWeight:600}}>
-                            <Download size={14}/> Tải: {item.attachmentName||'thongtin.txt'}
-                          </button>
-                        ) : (
-                          <a href={item.attachmentUrl} target="_blank" rel="noreferrer"
-                            style={{display:'inline-flex',alignItems:'center',gap:8,fontSize:13,color:'#fff',textDecoration:'none',padding:'8px 16px',borderRadius:6,background:'rgba(46,213,115,0.2)',border:'1px solid rgba(46,213,115,0.4)',fontWeight:600}}>
-                            <Download size={14}/> Tải: {item.attachmentName||'thongtin.txt'}
-                          </a>
-                        )}
-                      </div>
-                    )}
+                      ));
+                    })()}
                     {!item.loginUsername && !item.attachmentContent && !item.attachmentUrl && (
                       order?._credentialsInjected
                         ? (

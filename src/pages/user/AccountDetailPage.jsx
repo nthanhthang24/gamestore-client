@@ -58,9 +58,9 @@ const AccountDetailPage = ({ onAddToCart }) => {
   const images     = account.images || [];
   const quantity   = account.quantity   != null ? account.quantity   : 1;
   const soldCount  = account.soldCount  != null ? account.soldCount  : 0;
-  const stock      = Math.max(0, quantity - soldCount); // actual remaining stock
-  const maxQty     = stock; // no artificial cap — let cart limit handle it
-  const isSold     = account.status === 'sold' || stock <= 0;
+  // 1 item = 1 combo bán 1 lần duy nhất — soldCount>=1 = hết hàng
+
+  const isSold     = account.status === 'sold' || soldCount >= 1;
 
   const salePrice = activeFlashSale ? getSalePrice(account.price, account.gameType) : null;
   const unitPrice = (activeFlashSale && salePrice && salePrice < account.price) ? salePrice : account.price;
@@ -121,7 +121,7 @@ const AccountDetailPage = ({ onAddToCart }) => {
               <span className="badge badge-accent">{account.gameType}</span>
               {account.featured && <span className="badge badge-gold"><Star size={10} /> Nổi bật</span>}
               <span className={`badge ${isSold ? 'badge-danger' : 'badge-success'}`}>
-                {isSold ? '● Hết hàng' : stock > 1 ? `● Còn ${stock} nick` : '● Còn hàng'}
+                {isSold ? '● Hết hàng' : '● Còn hàng'}
               </span>
             </div>
 
@@ -188,7 +188,7 @@ const AccountDetailPage = ({ onAddToCart }) => {
             </div>
 
             {/* ── Quantity selector — only show if stock > 1 ── */}
-            {!isSold && stock > 1 && (
+            {false && !isSold && (  {/* qty selector disabled — 1 item = 1 combo */}
               <div className="qty-selector">
                 <div className="qty-label">
                   <Package size={14} />
@@ -226,7 +226,7 @@ const AccountDetailPage = ({ onAddToCart }) => {
                 style={{ flex: 1 }}
               >
                 <Zap size={18} />
-                {isSold ? 'Hết hàng' : buyQty > 1 ? `Mua ${buyQty} nick` : 'Mua ngay'}
+                {isSold ? 'Hết hàng' : 'Mua ngay'}
               </button>
               <button
                 className="btn btn-ghost btn-lg"
@@ -253,8 +253,8 @@ const AccountDetailPage = ({ onAddToCart }) => {
                 { icon: <Zap size={16} style={{ color: 'var(--accent)' }} />, text: 'Nhận thông tin tức thì' },
                 { icon: <Clock size={16} style={{ color: 'var(--gold)' }} />, text: 'Hỗ trợ 24/7' },
                 { icon: <Eye size={16} style={{ color: 'var(--accent2)' }} />, text: `${account.views || 0} lượt xem` },
-                { icon: <Package size={16} style={{ color: account.soldCount >= account.quantity ? 'var(--danger)' : 'var(--success)' }} />,
-                  text: `Còn ${Math.max(0,(account.quantity||1)-(account.soldCount||0))}/${account.quantity||1} slot` },
+                { icon: <Package size={16} style={{ color: isSold ? 'var(--danger)' : 'var(--success)' }} />,
+                  text: quantity > 1 ? `Gồm ${quantity} tài khoản` : 'Tài khoản đơn' },
               ].map((g, i) => (
                 <div key={i} className="guarantee-item">{g.icon}<span>{g.text}</span></div>
               ))}

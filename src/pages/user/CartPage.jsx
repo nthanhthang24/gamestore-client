@@ -120,7 +120,7 @@ const CartPage = ({ cart, setCart }) => {
     const item = cart.find(i => i.id === accountId);
     if (!item) return;
     const currentQty = cart.filter(i => i.id === accountId).length;
-    const maxStock = (item.quantity || 1) - (item.soldCount || 0);
+    const maxStock = (item.soldCount || 0) >= 1 ? 0 : 1; // 1 item bán 1 lần
     if (currentQty >= maxStock) {
       toast.error(`Chỉ còn ${maxStock} nick khả dụng.`, TS); return;
     }
@@ -182,14 +182,11 @@ const CartPage = ({ cart, setCart }) => {
           toast.error(`Tài khoản "${cartItem?.title}" không còn tồn tại.`, TS); return;
         }
         const d = snap.data();
-        const wantUnits = cart.filter(x => x.id === id).length;
-        const stockLeft = (d.quantity || 1) - (d.soldCount || 0);
-        if (d.status !== 'available' || stockLeft <= 0) {
+        // 1 item = 1 combo bán 1 lần duy nhất, soldCount>=1 = hết hàng
+        const isSold = d.status !== 'available' || (d.soldCount || 0) >= 1;
+        if (isSold) {
           toast.error(`Tài khoản "${cartItem?.title}" đã hết hàng.`, TS);
           setCart(prev => prev.filter(x => x.id !== id)); return;
-        }
-        if (wantUnits > stockLeft) {
-          toast.error(`"${cartItem?.title}": chỉ còn ${stockLeft} nick, bạn đang chọn ${wantUnits}.`, TS); return;
         }
       }
 
@@ -264,9 +261,8 @@ const CartPage = ({ cart, setCart }) => {
           if (!snap.exists()) throw new Error(`Tài khoản "${cartItem?.title}" không tồn tại.`);
           const sd = snap.data();
           const sc = sd.soldCount || 0;
-          const qt = sd.quantity  || 1;
-          const wantUnits = cart.filter(x => x.id === id).length;
-          if (sd.status !== 'available' || sc + wantUnits > qt)
+          // 1 item = 1 combo, bán đúng 1 lần
+          if (sd.status !== 'available' || sc >= 1)
             throw new Error(`Tài khoản "${cartItem?.title}" vừa hết hàng.`);
           txVerifiedSoldCount[id] = sc;
         }
@@ -450,7 +446,7 @@ const CartPage = ({ cart, setCart }) => {
                 const hasSale  = group.salePrice && group.salePrice < group.price;
                 const unitPrice = hasSale ? group.salePrice : group.price;
                 const groupTotal = unitPrice * group.qty;
-                const maxStock = (group.quantity || 1) - (group.soldCount || 0);
+                const maxStock = (group.soldCount || 0) >= 1 ? 0 : 1;
                 const canIncrease = group.qty < maxStock;
 
                 return (
