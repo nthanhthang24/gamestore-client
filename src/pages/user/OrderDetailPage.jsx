@@ -1,7 +1,7 @@
 // src/pages/user/OrderDetailPage.jsx
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { doc, getDoc, addDoc, collection, serverTimestamp, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, addDoc, collection, serverTimestamp, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { useAuth } from '../../context/AuthContext';
 import { ArrowLeft, Shield, Download, Copy, CheckCircle, Clock, AlertTriangle, MessageSquare, Package, ChevronDown, ChevronUp, Eye, EyeOff } from 'lucide-react';
@@ -29,7 +29,16 @@ const OrderDetailPage = () => {
 
   useEffect(() => {
     if (!currentUser) return;
-    loadOrder();
+    // Realtime listener — tự update khi server inject credentials xong
+    const unsub = onSnapshot(doc(db, 'orders', id), (snap) => {
+      if (!snap.exists() || snap.data().userId !== currentUser.uid) {
+        navigate('/orders'); return;
+      }
+      setOrder({ id: snap.id, ...snap.data() });
+    });
+    // Load tickets một lần
+    loadTickets();
+    return () => unsub();
   }, [id, currentUser]);
 
   // callConfirm: gọi /checkout/confirm, trả về {ok, alreadyDone, error}
@@ -93,18 +102,8 @@ const OrderDetailPage = () => {
     }
   };
 
-  const loadOrder = async () => {
+  const loadTickets = async () => {
     try {
-      const snap = await getDoc(doc(db,'orders',id));
-      if (!snap.exists() || snap.data().userId !== currentUser.uid) {
-        navigate('/orders'); return;
-      }
-      const orderData = { id:snap.id, ...snap.data() };
-      setOrder(orderData);
-
-      // Nếu chưa có credentials (hiếm — server chưa inject kịp), user bấm "Thử lấy lại" thủ công
-
-      // load tickets for this order, sorted newest first
       const tSnap = await getDocs(query(
         collection(db,'tickets'),
         where('orderId','==',id),
