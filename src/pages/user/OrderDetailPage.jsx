@@ -24,44 +24,90 @@ const OrderDetailPage = () => {
   const [ticketForm, setTicketForm] = useState({ type:'warranty', description:'' });
   const [submitting, setSubmitting] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  // autoRetryCount: số lần đã auto-retry (silent), dùng để backoff
+  const autoRetryCount = React.useRef(0);
 
   useEffect(() => {
     if (!currentUser) return;
     loadOrder();
   }, [id, currentUser]);
 
-  // BUG FIX: Nếu server bị ngủ (cold start) khi checkout, credentials chưa được inject.
-  // Hàm này gọi lại /checkout/confirm rồi reload order — user bấm "Thử lại" hoặc auto-retry.
+  // callConfirm: gọi /checkout/confirm, trả về {ok, alreadyDone, error}
+  const callConfirm = async () => {
+    const idToken = await currentUser.getIdToken(true); // force refresh token
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 40_000);
+    try {
+      const resp = await fetch(`${SERVER_URL}/bank/checkout/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+        body: JSON.stringify({ orderId: id }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        return { ok: true, alreadyDone: data.message === 'already_updated' };
+      }
+      const err = await resp.json().catch(() => ({}));
+      return { ok: false, error: err.error || `HTTP ${resp.status}` };
+    } catch (fetchErr) {
+      clearTimeout(timeout);
+      if (fetchErr.name === 'AbortError') return { ok: false, error: 'timeout' };
+      return { ok: false, error: 'network' };
+    }
+  };
+
+  // reloadOrder: đọc lại order từ Firestore
+  const reloadOrder = async () => {
+    const snap = await getDoc(doc(db, 'orders', id));
+    if (snap.exists()) { setOrder({ id: snap.id, ...snap.data() }); return snap.data(); }
+    return null;
+  };
+
+  // autoRetry: silent retry khi vào trang — không show toast lỗi, chỉ show khi thành công
+  // Backoff: 2s → 5s → 10s → 20s → dừng
+  const autoRetry = React.useCallback(async (attempt = 0) => {
+    if (attempt >= 4) return; // max 4 lần auto
+    const delays = [2000, 5000, 10000, 20000];
+    await new Promise(r => setTimeout(r, delays[attempt]));
+    // Kiểm tra lại Firestore trước (có thể đã inject xong từ lúc khác)
+    const orderData = await reloadOrder();
+    if (orderData?._credentialsInjected) {
+      toast.success('✅ Đã nhận thông tin đăng nhập!', TS);
+      return;
+    }
+    const result = await callConfirm();
+    if (result.ok) {
+      await reloadOrder();
+      toast.success('✅ Đã nhận thông tin đăng nhập!', TS);
+    } else if (result.error === 'timeout' || result.error === 'network') {
+      // Server chưa thức — thử lại lần tiếp
+      autoRetry(attempt + 1);
+    }
+    // Nếu lỗi khác (403, 409...) thì dừng — user bấm thủ công
+  }, [id]);
+
+  // manualRetry: user bấm "Thử lấy lại" — show đầy đủ toast
   const retryCredentialInject = async () => {
     setRetrying(true);
     try {
-      const idToken = await currentUser.getIdToken();
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 35_000); // 35s — đủ cho cold start
-      try {
-        const resp = await fetch(`${SERVER_URL}/bank/checkout/confirm`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
-          body: JSON.stringify({ orderId: id }),
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-        if (resp.ok) {
-          // Reload order from Firestore to get injected credentials
-          const snap = await getDoc(doc(db, 'orders', id));
-          if (snap.exists()) setOrder({ id: snap.id, ...snap.data() });
-          toast.success('✅ Đã lấy thông tin đăng nhập!', TS);
-        } else {
-          const err = await resp.json().catch(() => ({}));
-          toast.error('Không thể lấy thông tin: ' + (err.error || resp.status), TS);
-        }
-      } catch (fetchErr) {
-        clearTimeout(timeout);
-        if (fetchErr.name === 'AbortError') {
-          toast.error('⚠️ Server đang khởi động (mất ~30s), vui lòng thử lại.', { ...TS, duration: 7000 });
-        } else {
-          toast.error('Lỗi kết nối server. Vui lòng thử lại.', TS);
-        }
+      // Check Firestore trước
+      const orderData = await reloadOrder();
+      if (orderData?._credentialsInjected) {
+        toast.success('✅ Đã nhận thông tin đăng nhập!', TS);
+        return;
+      }
+      const result = await callConfirm();
+      if (result.ok) {
+        await reloadOrder();
+        toast.success('✅ Đã nhận thông tin đăng nhập!', TS);
+      } else if (result.error === 'timeout') {
+        toast.error('⚠️ Server đang khởi động (~30s), vui lòng thử lại.', { ...TS, duration: 7000 });
+      } else if (result.error === 'network') {
+        toast.error('Không có kết nối mạng. Kiểm tra internet rồi thử lại.', TS);
+      } else {
+        toast.error('Không thể lấy thông tin: ' + result.error, TS);
       }
     } catch (e) {
       toast.error('Lỗi xác thực: ' + e.message, TS);
@@ -79,10 +125,9 @@ const OrderDetailPage = () => {
       const orderData = { id:snap.id, ...snap.data() };
       setOrder(orderData);
 
-      // AUTO-RETRY: Nếu credentials chưa được inject (server bị ngủ khi checkout),
-      // tự động gọi lại /checkout/confirm sau 2 giây
+      // AUTO-RETRY: silent, chỉ khi chưa inject, backoff 2s→5s→10s→20s
       if (!orderData._credentialsInjected && orderData.status === 'completed') {
-        setTimeout(() => retryCredentialInject(), 2000);
+        autoRetry(0);
       }
 
       // load tickets for this order, sorted newest first
@@ -187,8 +232,8 @@ const OrderDetailPage = () => {
           )}
         </div>
 
-        {/* Items — bulk download button when order has multiple items with credentials */}
-        {(order.items||[]).length > 1 && (order.items||[]).some(i => i.loginUsername || i.attachmentContent || i.attachmentUrl) && (() => {
+        {/* Download all button — show when has credentials (1 item or multiple) */}
+        {(order.items||[]).some(i => i.loginUsername || i.attachmentContent || i.attachmentUrl) && (() => {
           const downloadAll = () => {
             const lines = [];
             (order.items||[]).forEach((item, idx) => {
@@ -328,28 +373,39 @@ const OrderDetailPage = () => {
                       </div>
                     )}
                     {!item.loginUsername && !item.attachmentContent && !item.attachmentUrl && (
-                      <div style={{background:'rgba(255,165,0,0.08)',border:'1px solid rgba(255,165,0,0.35)',borderRadius:8,padding:'12px 16px'}}>
-                        <div style={{display:'flex',alignItems:'center',gap:8,color:'var(--gold)',fontWeight:700,fontSize:13,marginBottom:6}}>
-                          <Clock size={14}/> Đang chờ thông tin đăng nhập...
-                        </div>
-                        <div style={{fontSize:12,color:'var(--text-secondary)',lineHeight:1.6,marginBottom:10}}>
-                          Server đang xử lý. Thường mất 5–30 giây.
-                          {order?._credentialsInjected === false || !order?._credentialsInjected
-                            ? ' Nếu chờ lâu hơn, bấm "Thử lấy lại" bên dưới.'
-                            : ''}
-                        </div>
-                        <button
-                          onClick={retryCredentialInject}
-                          disabled={retrying}
-                          style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:12,fontWeight:600,
-                            padding:'6px 14px',borderRadius:6,border:'1px solid rgba(255,165,0,0.5)',
-                            background:'rgba(255,165,0,0.12)',color:'var(--gold)',cursor:'pointer'}}
-                        >
-                          {retrying
-                            ? <><span className="spinner" style={{width:12,height:12,borderWidth:2}}/> Đang lấy...</>
-                            : '🔄 Thử lấy lại thông tin'}
-                        </button>
-                      </div>
+                      order?._credentialsInjected
+                        ? (
+                          // Đã inject nhưng slot này không có credentials — slot rỗng
+                          <div style={{background:'rgba(100,100,100,0.08)',border:'1px solid var(--border)',borderRadius:8,padding:'12px 16px'}}>
+                            <div style={{fontSize:13,color:'var(--text-muted)'}}>
+                              ⚠️ Slot này chưa có thông tin đăng nhập. Vui lòng liên hệ hỗ trợ.
+                            </div>
+                          </div>
+                        ) : (
+                          // Chưa inject — đang chờ server
+                          <div style={{background:'rgba(255,165,0,0.08)',border:'1px solid rgba(255,165,0,0.35)',borderRadius:8,padding:'12px 16px'}}>
+                            <div style={{display:'flex',alignItems:'center',gap:8,color:'var(--gold)',fontWeight:700,fontSize:13,marginBottom:6}}>
+                              <Clock size={14}/>
+                              {retrying ? 'Đang lấy thông tin...' : 'Đang chờ thông tin đăng nhập...'}
+                            </div>
+                            <div style={{fontSize:12,color:'var(--text-secondary)',lineHeight:1.6,marginBottom:10}}>
+                              {retrying
+                                ? 'Server đang xử lý, vui lòng chờ.'
+                                : 'Server đang xử lý. Thường mất 5–30 giây. Nếu chờ lâu hơn, bấm "Thử lấy lại".'}
+                            </div>
+                            <button
+                              onClick={retryCredentialInject}
+                              disabled={retrying}
+                              style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:12,fontWeight:600,
+                                padding:'6px 14px',borderRadius:6,border:'1px solid rgba(255,165,0,0.5)',
+                                background:'rgba(255,165,0,0.12)',color:'var(--gold)',cursor:retrying?'not-allowed':'pointer'}}
+                            >
+                              {retrying
+                                ? <><span className="spinner" style={{width:12,height:12,borderWidth:2}}/> Đang lấy...</>
+                                : '🔄 Thử lấy lại thông tin'}
+                            </button>
+                          </div>
+                        )
                     )}
                   </div>
                 )}
