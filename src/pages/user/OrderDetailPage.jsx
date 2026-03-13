@@ -125,8 +125,11 @@ const OrderDetailPage = () => {
       const orderData = { id:snap.id, ...snap.data() };
       setOrder(orderData);
 
-      // AUTO-RETRY: silent, chỉ khi chưa inject, backoff 2s→5s→10s→20s
-      if (!orderData._credentialsInjected && orderData.status === 'completed') {
+      // AUTO-RETRY: fire khi chưa inject, HOẶC đã inject nhưng allCredentials rỗng (đơn cũ bị inject sai)
+      const hasCredentials = (orderData.items || []).some(i =>
+        i.loginUsername || i.attachmentContent || (i.allCredentials?.length > 0)
+      );
+      if (orderData.status === 'completed' && (!orderData._credentialsInjected || !hasCredentials)) {
         autoRetry(0);
       }
 
@@ -406,7 +409,7 @@ const OrderDetailPage = () => {
                         </div>
                       ));
                     })()}
-                    {!item.loginUsername && !item.attachmentContent && !item.attachmentUrl && (
+                    {!item.loginUsername && !item.attachmentContent && !item.attachmentUrl && !(item.allCredentials?.length > 0) && (
                       order?._credentialsInjected
                         ? (
                           // Đã inject nhưng slot này không có credentials — slot rỗng
