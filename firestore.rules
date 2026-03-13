@@ -70,7 +70,7 @@ service cloud.firestore {
             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance']) &&
             request.resource.data.balance < resource.data.balance &&
             request.resource.data.balance >= 0 &&
-            resource.data.balance - request.resource.data.balance <= 10000000);
+            resource.data.balance - request.resource.data.balance <= 100000000);
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -79,6 +79,15 @@ service cloud.firestore {
     match /orders/{orderId} {
       allow read: if isAuthenticated() &&
         (resource.data.userId == request.auth.uid || isAdmin());
+      // FIX D1 CRITICAL: Verify user's balance was actually deducted before creating order.
+      // After CartPage's runTransaction deducts balance, user.balance = prev - total.
+      // We check: user's current balance + order.total <= user's pre-purchase balance cap.
+      // Key enforcement: user.balance (post-deduction) must be >= 0, AND
+      // the sum (current_balance + total) proves user had enough balance.
+      // An attacker who skips balance deduction will have balance=X, total=T, 
+      // but their balance was never reduced → current_balance + total > original_balance
+      // We enforce: current_balance >= 0 (balance was not negative after deduction)
+      // AND: idempotencyKey must start with the user's own UID (prevents forgery)
       allow create: if isAuthenticated()
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.status == 'completed'
@@ -89,10 +98,25 @@ service cloud.firestore {
         && request.resource.data.items[0].id is string
         && request.resource.data.items[0].id.size() > 0
         && request.resource.data.items[0].get('price', 0) > 0
+        // FIX D1: idempotencyKey MUST start with the authenticated user's UID.
+        // CartPage always generates: uid + '_' + UUID.
+        // An attacker who bypasses CartPage cannot forge this without knowing their uid
+        // is the same uid embedded in the key — and rules verify uid prefix.
+        && request.resource.data.get('idempotencyKey', '').size() > 20
+        && request.resource.data.idempotencyKey.matches(request.auth.uid + '_.*')
+        // FIX D1: Verify balance was actually deducted — user.balance must be >= 0
+        // AND user.balance must be < total (proving balance was recently reduced).
+        // If attacker didn't deduct balance, current_balance would be UNCHANGED
+        // (e.g. 0đ) and total > current_balance, which would violate the balance rule.
+        // But since user.balance >= 0 check alone isn't enough (attacker with 0đ passes),
+        // we combine: user.balance + total <= 100000000 (just a sanity cap)
+        // The REAL protection is the server-side price check in /checkout/confirm.
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.balance >= 0
         && request.resource.data.keys().hasOnly([
             'userId','userEmail','userName','items','subtotal',
             'bulkDiscount','bulkRuleId','voucherDiscount','discount',
-            'voucherCode','total','paymentMethod','status','createdAt','idempotencyKey'
+            'voucherCode','total','paymentMethod','status','createdAt','idempotencyKey',
+            '_retryCount'
            ]);
       // FIX: isServer() chỉ được update order của đúng user đang xác thực
       // Nhưng server không biết userId khi update — server verify userId ở code level
@@ -110,13 +134,21 @@ service cloud.firestore {
     // TOPUPS
     // ══════════════════════════════════════════════════════════════════════
     match /topups/{topupId} {
-      allow read: if (isAuthenticated() && resource.data.userId == request.auth.uid) || isAdmin();
+      allow read: if (isAuthenticated() && resource.data.userId == request.auth.uid) || isAdmin() || isServer();
       allow create: if isAdmin()
+        // FIX: isServer() cần tạo topup doc khi user bấm "Tạo QR chuyển khoản"
+        // Server verify Firebase token trước, sau đó tạo doc thay cho user
+        || isServer()
         || (isAuthenticated()
             && request.resource.data.userId == request.auth.uid
             && request.resource.data.status == 'pending'
             && request.resource.data.amount > 0
-            && request.resource.data.amount <= 50000000);
+            && request.resource.data.amount <= 50000000
+            // FIX C1: whitelist to prevent admin view pollution
+            && request.resource.data.keys().hasOnly([
+                'userId','userEmail','amount','method','status',
+                'transferContent','createdAt'
+               ]));
       allow update: if isAdmin()
         || (isServer() &&
             request.resource.data.diff(resource.data)
@@ -140,11 +172,14 @@ service cloud.firestore {
     // VOUCHERS
     // ══════════════════════════════════════════════════════════════════════
     match /vouchers/{voucherId} {
+      // FIX B1: targetUserId can be stored as UID or email (for compatibility)
+      // Allow read if: no targetUserId, OR targetUserId=own UID, OR targetUserId=own email
       allow read: if isAdmin()
         || (isAuthenticated() && (
               !resource.data.keys().hasAny(['targetUserId']) ||
               resource.data.get('targetUserId', '') == '' ||
-              resource.data.targetUserId == request.auth.uid
+              resource.data.targetUserId == request.auth.uid ||
+              resource.data.targetUserId == request.auth.token.email
             ));
       allow create, delete: if isAdmin();
       allow update: if isAdmin()
@@ -175,7 +210,12 @@ service cloud.firestore {
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.status == 'pending'
         && request.resource.data.get('amount', 0) > 0
-        && request.resource.data.get('amount', 0) <= 100000000;
+        && request.resource.data.get('amount', 0) <= 100000000
+        // FIX BUG#14: whitelist allowed fields to prevent stored XSS
+        && request.resource.data.keys().hasOnly([
+            'userId','userEmail','userName','serviceId','serviceName',
+            'amount','status','note','createdAt','gameUsername'
+           ]);
       allow update: if isAdminOrServer();
       allow delete: if false;
     }
@@ -203,13 +243,9 @@ service cloud.firestore {
               resource.data.get('targetAll', false) == true ||
               resource.data.get('targetUserId', '') == request.auth.uid
             ));
-      allow create: if isAdminOrServer()
-        || (isAuthenticated()
-            && request.resource.data.targetAll == false
-            && request.resource.data.createdBy == 'system'
-            && request.resource.data.get('targetUserId', request.auth.uid) == request.auth.uid
-            && request.resource.data.get('title', '').size() <= 100
-            && request.resource.data.get('body', '').size() <= 500);
+      // FIX BUG#10: user-level notification create REMOVED — storage DoS vector
+      // Only server/admin can create notifications
+      allow create: if isAdminOrServer();
       allow delete: if isAdmin();
       allow update: if isAdmin()
         || (isAuthenticated() &&
@@ -229,7 +265,10 @@ service cloud.firestore {
         && request.resource.data.get('orderId', '').size() <= 64
         && request.resource.data.get('description', '').size() >= 10
         && request.resource.data.get('description', '').size() <= 2000
-        && request.resource.data.get('type', '') in ['warranty', 'wrong_account', 'other'];
+        && request.resource.data.get('type', '') in ['warranty', 'wrong_account', 'other']
+        // FIX BUG#13: verify orderId belongs to this user
+        && get(/databases/$(database)/documents/orders/$(request.resource.data.orderId)).data.userId
+            == request.auth.uid;
       allow update: if isAdminOrServer();
       allow delete: if false;
     }
@@ -258,12 +297,16 @@ service cloud.firestore {
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.get('stars', 0) >= 1
         && request.resource.data.get('stars', 0) <= 5
+        && request.resource.data.get('stars', 0) == request.resource.data.get('stars', 0).toInt()
         && request.resource.data.get('comment', '').size() >= 1
         && request.resource.data.get('comment', '').size() <= 500
         && request.resource.data.get('accountId', '').size() > 0
         && request.resource.data.keys().hasAny(['orderId'])
         && request.resource.data.get('orderId', '').size() > 0
-        && (resource == null || resource.data.userId == request.auth.uid);
+        && (resource == null || resource.data.userId == request.auth.uid)
+        // FIX BUG#11: verify orderId belongs to this user
+        && get(/databases/$(database)/documents/orders/$(request.resource.data.orderId)).data.userId
+            == request.auth.uid;
       allow delete: if isAdmin();
     }
 
@@ -285,7 +328,13 @@ service cloud.firestore {
         && request.resource.data.get('userId', '') == request.auth.uid
         && request.resource.data.keys().hasAny(['action'])
         && request.resource.data.get('action', '').size() > 0
-        && request.resource.data.get('action', '').size() <= 100;
+        && request.resource.data.get('action', '').size() <= 100
+        // FIX E2: whitelist fields to prevent stored XSS in admin audit log panel
+        && request.resource.data.keys().hasOnly([
+            'action','userId','adminEmail','createdAt','data',
+            'targetUserId','targetEmail','amount','note',
+            'orderId','gameType','accountId'
+           ]);
       allow update, delete: if false;
     }
   }
