@@ -301,16 +301,22 @@ const AdminUsersPage = () => {
     if (!selectedUser || !adjustAmount) return;
     const amt = parseInt(adjustAmount);
     if (isNaN(amt)) { import('react-hot-toast').then(({default:t})=>t.error('Số tiền không hợp lệ')); return; }
+    // SECURITY: limit admin balance adjustment to ±50,000,000 per operation
+    if (Math.abs(amt) > 50_000_000) { import('react-hot-toast').then(({default:t})=>t.error('Số tiền điều chỉnh tối đa ±50,000,000đ mỗi lần')); return; }
+    if (amt === 0) { import('react-hot-toast').then(({default:t})=>t.error('Số tiền không được là 0')); return; }
     setAdjusting(true);
     try {
-      await import('firebase/firestore').then(({ doc, runTransaction }) =>
+      await import('firebase/firestore').then(({ doc, runTransaction, increment }) =>
         import('./firebase/config').then(({ db }) =>
           runTransaction(db, async (tx) => {
             const uRef = doc(db, 'users', selectedUser.id);
             const uSnap = await tx.get(uRef);
             if (!uSnap.exists()) throw new Error('User not found');
+            // FIX: dùng increment() thay vì cur+amt — tránh lost update khi 2 admin adjust cùng lúc
+            // Cũng đảm bảo balance không âm sau khi trừ
             const cur = uSnap.data().balance || 0;
-            tx.update(uRef, { balance: cur + amt });
+            if (cur + amt < 0) throw new Error(`Số dư sau điều chỉnh sẽ âm (${cur.toLocaleString('vi-VN')} + ${amt.toLocaleString('vi-VN')} = ${(cur+amt).toLocaleString('vi-VN')}đ)`);
+            tx.update(uRef, { balance: increment(amt) });
           })
         )
       );
