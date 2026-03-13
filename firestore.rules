@@ -4,9 +4,23 @@ service cloud.firestore {
 
     function isAuthenticated() { return request.auth != null; }
     function isOwner(userId)   { return isAuthenticated() && request.auth.uid == userId; }
+
+    function getRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
     function isAdmin() {
-      return isAuthenticated() &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+      return isAuthenticated() && getRole() == 'admin';
+    }
+
+    // Server bot user: role='server' trong Firestore
+    // Chỉ được làm các operation backend cụ thể — không vào admin UI
+    function isServer() {
+      return isAuthenticated() && getRole() == 'server';
+    }
+
+    function isAdminOrServer() {
+      return isAuthenticated() && (getRole() == 'admin' || getRole() == 'server');
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -15,23 +29,20 @@ service cloud.firestore {
     match /accounts/{accountId} {
       allow read: if true;
       allow create, delete: if isAdmin();
-      // Chỉ admin update. Views: bất kỳ ai tăng đúng +1.
       allow update: if isAdmin()
+        // Server được update soldCount và status
+        || (isServer() &&
+            request.resource.data.diff(resource.data)
+              .affectedKeys().hasOnly(['soldCount', 'status']))
+        // Views: bất kỳ ai tăng đúng +1
         || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['views']) &&
             request.resource.data.views == resource.data.views + 1);
     }
 
     // ── Credentials subcollection ─────────────────────────────────────────
-    // FIX-FINAL: CHỈ admin (Admin SDK) đọc/ghi được.
-    // Client (CartPage) KHÔNG còn đọc credentials nữa.
-    // Server /checkout/confirm dùng Admin SDK để:
-    //   1. Fetch credentials subcollection
-    //   2. Inject vào order record
-    //   3. Update soldCount
-    // Buyer đọc credentials từ ORDER record (đã được copy vào order).
-    // → Không có bất kỳ user login nào đọc được credentials của account chưa mua.
+    // Server đọc để inject vào order. Admin đọc/ghi để quản lý.
     match /accounts/{accountId}/credentials/{docId} {
-      allow read: if isAdmin();
+      allow read:  if isAdmin() || isServer();
       allow write: if isAdmin();
     }
 
@@ -40,25 +51,31 @@ service cloud.firestore {
     // ══════════════════════════════════════════════════════════════════════
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
+      // Server chỉ được đọc user để verify, không cần read all fields
+      allow read: if isServer();
+
       allow create: if isAuthenticated() && isOwner(userId)
         && request.resource.data.role == 'user'
         && request.resource.data.balance == 0;
+
       allow update: if isAdmin()
-        // Profile update: chỉ displayName, avatar — không được đụng balance/role/uid/banned/email
+        // Server được credit balance (tăng) + cập nhật referral bonus
+        || (isServer() &&
+            request.resource.data.diff(resource.data)
+              .affectedKeys().hasOnly(['balance']) &&
+            request.resource.data.balance >= resource.data.balance)
+        // Profile update: owner chỉ được sửa displayName, avatar
         || (isOwner(userId) &&
             !request.resource.data.diff(resource.data)
               .affectedKeys().hasAny(['balance', 'role', 'uid', 'createdAt',
                                       'banned', 'bannedAt', 'email']) &&
             request.resource.data.get('displayName', '').size() <= 100)
         // Checkout: user tự GIẢM balance (thanh toán)
-        // Không được tăng, không được giảm quá 10M/lần (giới hạn single purchase)
-        // → Ngăn attacker set balance = 0 để social engineer "mất tiền"
         || (isOwner(userId) &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance']) &&
             request.resource.data.balance < resource.data.balance &&
             request.resource.data.balance >= 0 &&
             resource.data.balance - request.resource.data.balance <= 10000000);
-        // Server webhook dùng Admin SDK bypass rules để credit balance
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -82,14 +99,16 @@ service cloud.firestore {
             'bulkDiscount','bulkRuleId','voucherDiscount','discount',
             'voucherCode','total','paymentMethod','status','createdAt','idempotencyKey'
            ]);
-      // Server Admin SDK bypass rules — không cần rule client cho update
-      allow update: if isAdmin();
+      // Server inject credentials vào order sau khi thanh toán
+      allow update: if isAdmin()
+        || (isServer() &&
+            request.resource.data.diff(resource.data)
+              .affectedKeys().hasOnly(['items', 'status', '_credentialsInjected']));
       allow delete: if false;
     }
 
     // ══════════════════════════════════════════════════════════════════════
     // TOPUPS
-    // FIX V4: Chỉ authenticated user tạo topup cho chính mình.
     // ══════════════════════════════════════════════════════════════════════
     match /topups/{topupId} {
       allow read: if (isAuthenticated() && resource.data.userId == request.auth.uid) || isAdmin();
@@ -99,18 +118,20 @@ service cloud.firestore {
             && request.resource.data.status == 'pending'
             && request.resource.data.amount > 0
             && request.resource.data.amount <= 50000000);
-      // Server Admin SDK update — chỉ admin cần rule
-      allow update: if isAdmin();
+      allow update: if isAdmin()
+        || (isServer() &&
+            request.resource.data.diff(resource.data)
+              .affectedKeys().hasOnly(['status', 'processedAt', 'sePayId']));
       allow delete: if false;
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // TRANSACTIONS — chỉ Admin SDK ghi
+    // TRANSACTIONS — chỉ server hoặc admin tạo
     // ══════════════════════════════════════════════════════════════════════
     match /transactions/{id} {
       allow read: if isAuthenticated() &&
         (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAdmin();
+      allow create: if isAdminOrServer();
       allow update, delete: if false;
     }
 
@@ -145,7 +166,6 @@ service cloud.firestore {
 
     // ══════════════════════════════════════════════════════════════════════
     // SERVICE ORDERS
-    // amount > 0 check tại Firestore level — client whitelist fields trong code
     // ══════════════════════════════════════════════════════════════════════
     match /serviceOrders/{id} {
       allow read: if isAuthenticated() &&
@@ -155,22 +175,21 @@ service cloud.firestore {
         && request.resource.data.status == 'pending'
         && request.resource.data.get('amount', 0) > 0
         && request.resource.data.get('amount', 0) <= 100000000;
-      allow update: if isAdmin();
+      allow update: if isAdminOrServer();
       allow delete: if false;
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // UNMATCHED TOPUPS / PROCESSED WEBHOOKS — chỉ Admin SDK
-    // FIX V3: Không có unauthenticated access — Admin SDK bypass rules
+    // UNMATCHED TOPUPS / PROCESSED WEBHOOKS — chỉ server hoặc admin
     // ══════════════════════════════════════════════════════════════════════
     match /unmatchedTopups/{id} {
       allow read: if isAdmin();
-      allow create, update, delete: if isAdmin();
+      allow create, update, delete: if isAdminOrServer();
     }
 
     match /processedWebhooks/{id} {
       allow read: if isAdmin();
-      allow create, update: if isAdmin();
+      allow create, update: if isAdminOrServer();
       allow delete: if false;
     }
 
@@ -183,12 +202,11 @@ service cloud.firestore {
               resource.data.get('targetAll', false) == true ||
               resource.data.get('targetUserId', '') == request.auth.uid
             ));
-      allow create: if isAdmin()
+      allow create: if isAdminOrServer()
         || (isAuthenticated()
             && request.resource.data.targetAll == false
             && request.resource.data.createdBy == 'system'
             && request.resource.data.get('targetUserId', request.auth.uid) == request.auth.uid
-            // Giới hạn content size — tránh spam storage
             && request.resource.data.get('title', '').size() <= 100
             && request.resource.data.get('body', '').size() <= 500);
       allow delete: if isAdmin();
@@ -199,9 +217,6 @@ service cloud.firestore {
 
     // ══════════════════════════════════════════════════════════════════════
     // TICKETS
-    // FIX V13: Validate required fields + description limit tại rules level
-    // hasOpenTicket check là UI gate — Firestore rules không thể query existence
-    // Ticket per order limit cần Cloud Function (không thể enforce ở rules)
     // ══════════════════════════════════════════════════════════════════════
     match /tickets/{id} {
       allow read: if isAuthenticated() &&
@@ -213,9 +228,8 @@ service cloud.firestore {
         && request.resource.data.get('orderId', '').size() <= 64
         && request.resource.data.get('description', '').size() >= 10
         && request.resource.data.get('description', '').size() <= 2000
-        // Require type field be one of known values
         && request.resource.data.get('type', '') in ['warranty', 'wrong_account', 'other'];
-      allow update: if isAdmin();
+      allow update: if isAdminOrServer();
       allow delete: if false;
     }
 
@@ -230,23 +244,15 @@ service cloud.firestore {
         && request.resource.data.newUserId == request.auth.uid
         && request.resource.data.credited == false
         && request.resource.data.referrerId != request.auth.uid;
-      allow update: if isAdmin();
+      allow update: if isAdminOrServer();
       allow delete: if false;
     }
 
     // ══════════════════════════════════════════════════════════════════════
     // RATINGS
-    // FIX V12: accountId required, comment >= 1 char, stars 1-5
-    // Duplicate prevention: Firestore rules không query được collection khác,
-    // nên unique constraint userId+accountId phải dùng composite docId trên client.
-    // Client dùng setDoc(doc(db,'ratings', userId+'_'+accountId), ...) thay addDoc.
-    // Rule: allow create với điều kiện document chưa tồn tại (implicit trong create).
     // ══════════════════════════════════════════════════════════════════════
     match /ratings/{id} {
       allow read: if true;
-      // FIX V12: allow create AND update (setDoc overwrites existing doc)
-      // docId = userId_accountId → unique constraint per user per account
-      // User có thể update rating của chính mình (thay đổi sao/comment)
       allow create, update: if isAuthenticated()
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.get('stars', 0) >= 1
@@ -256,7 +262,6 @@ service cloud.firestore {
         && request.resource.data.get('accountId', '').size() > 0
         && request.resource.data.keys().hasAny(['orderId'])
         && request.resource.data.get('orderId', '').size() > 0
-        // Không được thay đổi userId, accountId, orderId sau khi tạo
         && (resource == null || resource.data.userId == request.auth.uid);
       allow delete: if isAdmin();
     }
