@@ -363,17 +363,44 @@ const CartPage = ({ cart, setCart }) => {
       // FIX 2025-Q: Notify server to update soldCount/status (admin-side write)
       // This runs AFTER order is saved. If it fails, admin sees the order and can update manually.
       if (orderId) {
+        // BUG FIX: Thêm timeout 35s (đủ cho Render cold start ~30s)
+        // Nếu server chưa kịp xử lý, OrderDetailPage sẽ tự retry khi user vào xem đơn hàng
+        const confirmWithTimeout = async () => {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 35_000);
+          try {
+            const SERVER_URL = process.env.REACT_APP_SERVER_URL || 'https://gamestore-server-i20i.onrender.com';
+            const idToken = await currentUser.getIdToken();
+            const resp = await fetch(`${SERVER_URL}/bank/checkout/confirm`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+              body: JSON.stringify({ orderId }),
+              signal: controller.signal,
+            });
+            clearTimeout(timeout);
+            return resp;
+          } catch (e) {
+            clearTimeout(timeout);
+            throw e;
+          }
+        };
+
         try {
-          const SERVER_URL = process.env.REACT_APP_SERVER_URL || 'https://gamestore-server-i20i.onrender.com';
-          const idToken = await currentUser.getIdToken();
-          await fetch(`${SERVER_URL}/bank/checkout/confirm`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
-            body: JSON.stringify({ orderId }),
-          });
+          const confirmResp = await confirmWithTimeout();
+          if (!confirmResp.ok) {
+            const errData = await confirmResp.json().catch(() => ({}));
+            const errCode = errData.code || '';
+            if (errCode === 'PRICE_MISMATCH' || errCode === 'INVALID_IKEY') {
+              throw new Error('Đơn hàng không hợp lệ — vui lòng đặt lại. (' + errCode + ')');
+            }
+            console.warn('checkout/confirm server error (non-critical):', errData);
+          }
         } catch (scErr) {
-          // Non-critical — order is saved, admin can update soldCount manually
-          console.warn('soldCount server update failed (non-critical):', scErr.message);
+          if (scErr.message.includes('PRICE_MISMATCH') || scErr.message.includes('INVALID_IKEY')) {
+            throw scErr;
+          }
+          // Non-critical (timeout / network) — OrderDetailPage sẽ auto-retry khi user vào xem đơn
+          console.warn('soldCount server update failed (non-critical, will retry on OrderDetail):', scErr.message);
         }
       }
 

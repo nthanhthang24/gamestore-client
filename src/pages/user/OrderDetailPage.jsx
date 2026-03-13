@@ -11,6 +11,8 @@ const TS = { style:{ background:'var(--bg-card)', color:'var(--text-primary)', b
 
 const copyText = (t) => { navigator.clipboard.writeText(t); toast.success('Đã copy!',TS); };
 
+const SERVER_URL = process.env.REACT_APP_SERVER_URL || 'https://gamestore-server-i20i.onrender.com';
+
 const OrderDetailPage = () => {
   const { id } = useParams();
   const { currentUser } = useAuth();
@@ -21,11 +23,52 @@ const OrderDetailPage = () => {
   const [showTicket, setShowTicket] = useState(false);
   const [ticketForm, setTicketForm] = useState({ type:'warranty', description:'' });
   const [submitting, setSubmitting] = useState(false);
+  const [retrying, setRetrying] = useState(false);
 
   useEffect(() => {
     if (!currentUser) return;
     loadOrder();
   }, [id, currentUser]);
+
+  // BUG FIX: Nếu server bị ngủ (cold start) khi checkout, credentials chưa được inject.
+  // Hàm này gọi lại /checkout/confirm rồi reload order — user bấm "Thử lại" hoặc auto-retry.
+  const retryCredentialInject = async () => {
+    setRetrying(true);
+    try {
+      const idToken = await currentUser.getIdToken();
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 35_000); // 35s — đủ cho cold start
+      try {
+        const resp = await fetch(`${SERVER_URL}/bank/checkout/confirm`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+          body: JSON.stringify({ orderId: id }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        if (resp.ok) {
+          // Reload order from Firestore to get injected credentials
+          const snap = await getDoc(doc(db, 'orders', id));
+          if (snap.exists()) setOrder({ id: snap.id, ...snap.data() });
+          toast.success('✅ Đã lấy thông tin đăng nhập!', TS);
+        } else {
+          const err = await resp.json().catch(() => ({}));
+          toast.error('Không thể lấy thông tin: ' + (err.error || resp.status), TS);
+        }
+      } catch (fetchErr) {
+        clearTimeout(timeout);
+        if (fetchErr.name === 'AbortError') {
+          toast.error('⚠️ Server đang khởi động (mất ~30s), vui lòng thử lại.', { ...TS, duration: 7000 });
+        } else {
+          toast.error('Lỗi kết nối server. Vui lòng thử lại.', TS);
+        }
+      }
+    } catch (e) {
+      toast.error('Lỗi xác thực: ' + e.message, TS);
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   const loadOrder = async () => {
     try {
@@ -33,7 +76,15 @@ const OrderDetailPage = () => {
       if (!snap.exists() || snap.data().userId !== currentUser.uid) {
         navigate('/orders'); return;
       }
-      setOrder({ id:snap.id, ...snap.data() });
+      const orderData = { id:snap.id, ...snap.data() };
+      setOrder(orderData);
+
+      // AUTO-RETRY: Nếu credentials chưa được inject (server bị ngủ khi checkout),
+      // tự động gọi lại /checkout/confirm sau 2 giây
+      if (!orderData._credentialsInjected && orderData.status === 'completed') {
+        setTimeout(() => retryCredentialInject(), 2000);
+      }
+
       // load tickets for this order, sorted newest first
       const tSnap = await getDocs(query(
         collection(db,'tickets'),
@@ -277,13 +328,27 @@ const OrderDetailPage = () => {
                       </div>
                     )}
                     {!item.loginUsername && !item.attachmentContent && !item.attachmentUrl && (
-                      <div style={{background:'rgba(255,71,87,0.08)',border:'1px solid rgba(255,71,87,0.3)',borderRadius:8,padding:'12px 16px'}}>
-                        <div style={{display:'flex',alignItems:'center',gap:8,color:'var(--danger)',fontWeight:700,fontSize:13,marginBottom:6}}>
-                          <AlertTriangle size={14}/> Thiếu thông tin đăng nhập
+                      <div style={{background:'rgba(255,165,0,0.08)',border:'1px solid rgba(255,165,0,0.35)',borderRadius:8,padding:'12px 16px'}}>
+                        <div style={{display:'flex',alignItems:'center',gap:8,color:'var(--gold)',fontWeight:700,fontSize:13,marginBottom:6}}>
+                          <Clock size={14}/> Đang chờ thông tin đăng nhập...
                         </div>
-                        <div style={{fontSize:12,color:'var(--text-secondary)',lineHeight:1.6}}>
-                          Chưa có thông tin đăng nhập. Vui lòng liên hệ admin — bấm <strong>"Liên hệ hỗ trợ"</strong> bên dưới.
+                        <div style={{fontSize:12,color:'var(--text-secondary)',lineHeight:1.6,marginBottom:10}}>
+                          Server đang xử lý. Thường mất 5–30 giây.
+                          {order?._credentialsInjected === false || !order?._credentialsInjected
+                            ? ' Nếu chờ lâu hơn, bấm "Thử lấy lại" bên dưới.'
+                            : ''}
                         </div>
+                        <button
+                          onClick={retryCredentialInject}
+                          disabled={retrying}
+                          style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:12,fontWeight:600,
+                            padding:'6px 14px',borderRadius:6,border:'1px solid rgba(255,165,0,0.5)',
+                            background:'rgba(255,165,0,0.12)',color:'var(--gold)',cursor:'pointer'}}
+                        >
+                          {retrying
+                            ? <><span className="spinner" style={{width:12,height:12,borderWidth:2}}/> Đang lấy...</>
+                            : '🔄 Thử lấy lại thông tin'}
+                        </button>
                       </div>
                     )}
                   </div>
