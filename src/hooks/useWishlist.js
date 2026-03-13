@@ -23,7 +23,7 @@ export const useWishlist = (currentUser) => {
       if (snap.exists()) {
         await updateDoc(ref, { items: inList ? arrayRemove(accountId) : arrayUnion(accountId) });
       } else {
-        await setDoc(ref, { userId: currentUser.uid, items: [accountId] });
+        await setDoc(ref, { items: [accountId], updatedAt: new Date() });
       }
     } catch(e) {
       setWishlist(p => inList ? [...p, accountId] : p.filter(x=>x!==accountId)); // rollback
