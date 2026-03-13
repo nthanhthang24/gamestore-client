@@ -1,6 +1,6 @@
 // src/pages/admin/AdminTickets.jsx
 import React, { useState, useEffect } from 'react';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, serverTimestamp, runTransaction, addDoc } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, getDoc, updateDoc, serverTimestamp, runTransaction, addDoc, increment } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { Shield, MessageSquare, AlertTriangle, CheckCircle, X, RefreshCw, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -86,13 +86,34 @@ const AdminTickets = () => {
 
       // If approving refund → also credit user balance
       if (action === 'resolved' && selected.type === 'refund' && selected.total > 0) {
+        // SECURITY FIX 1: đọc order.total từ Firestore thay vì ticket.total (client-written)
+        // Attacker có thể ghi ticket.total=10,000,000 khi tạo ticket → admin approve → 10M refund
+        // SECURITY FIX 2: dùng increment() thay vì read+add để tránh double-refund race condition
+        let verifiedTotal = selected.total; // fallback nếu không đọc được order
+        try {
+          const orderSnap = await getDoc(doc(db,'orders',selected.orderId));
+          if (orderSnap.exists()) {
+            verifiedTotal = orderSnap.data().total || 0;
+            if (verifiedTotal !== selected.total) {
+              console.warn(`⚠️ Ticket total mismatch: ticket.total=${selected.total} order.total=${verifiedTotal} — using order.total`);
+            }
+          }
+        } catch(e) {
+          console.warn('Could not verify order total, using ticket.total:', e.message);
+        }
+        if (verifiedTotal <= 0) throw new Error('Số tiền hoàn không hợp lệ');
         await runTransaction(db, async (tx) => {
+          const ticketRef = doc(db,'tickets',selected.id);
+          const ticketSnap = await tx.get(ticketRef);
+          // Double-check: chặn refund 2 lần nếu 2 admin resolve cùng lúc
+          if (!ticketSnap.exists() || ticketSnap.data().status === 'resolved') {
+            throw new Error('Ticket đã được giải quyết trước đó');
+          }
           const uRef = doc(db,'users',selected.userId);
-          const uSnap = await tx.get(uRef);
-          if (uSnap.exists()) tx.update(uRef,{ balance:(uSnap.data().balance||0)+selected.total });
-          tx.update(doc(db,'tickets',selected.id), updates);
+          tx.update(uRef,{ balance: increment(verifiedTotal), updatedAt: serverTimestamp() });
+          tx.update(ticketRef, updates);
         });
-        toast.success(`Đã hoàn ${selected.total?.toLocaleString('vi-VN')}đ cho ${selected.userEmail}`,TS);
+        toast.success(`Đã hoàn ${verifiedTotal?.toLocaleString('vi-VN')}đ cho ${selected.userEmail}`,TS);
       } else {
         await updateDoc(doc(db,'tickets',selected.id), updates);
         toast.success('Đã cập nhật ticket',TS);

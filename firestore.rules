@@ -252,8 +252,13 @@ service cloud.firestore {
       allow create: if isAdminOrServer();
       allow delete: if isAdmin();
       allow update: if isAdmin()
+        // User chỉ được mark-as-read: append UID của chính mình vào 'read' array
+        // Size limit 10000 để chặn storage DoS qua spam UIDs
         || (isAuthenticated() &&
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']));
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']) &&
+            request.resource.data.get('read', []).hasAll(resource.data.get('read', [])) &&
+            request.resource.data.get('read', []).size() <= resource.data.get('read', []).size() + 1 &&
+            request.resource.data.get('read', []).size() <= 10000);
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -270,6 +275,14 @@ service cloud.firestore {
         && request.resource.data.get('description', '').size() >= 10
         && request.resource.data.get('description', '').size() <= 2000
         && request.resource.data.get('type', '') in ['warranty', 'wrong_account', 'other', 'refund', 'support']
+        // SECURITY: field whitelist — chặn client inject arbitrary fields (vd: total cao hơn thực tế)
+        && request.resource.data.keys().hasOnly([
+            'orderId','userId','userEmail','userName','type','description',
+            'status','adminReply','items','total','createdAt','updatedAt'
+           ])
+        // SECURITY: total phải khớp với order.total (server verify trước khi refund; đây là 2nd check)
+        && request.resource.data.get('total', 0) ==
+            get(/databases/$(database)/documents/orders/$(request.resource.data.orderId)).data.total
         // FIX BUG#13: verify orderId belongs to this user
         && get(/databases/$(database)/documents/orders/$(request.resource.data.orderId)).data.userId
             == request.auth.uid;
