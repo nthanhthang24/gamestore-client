@@ -33,8 +33,10 @@ service cloud.firestore {
 
     // Credentials: admin write, server READ ONLY (để inject vào order)
     match /accounts/{accountId}/credentials/{docId} {
-      // Server dùng userToken (buyer) để đọc khi inject credentials vào order
-      allow read:  if isAdmin() || isAuthenticated();
+      // SECURITY: chỉ admin hoặc server bot mới đọc được credentials
+      // Server dùng serverToken (role='server') để đọc khi inject vào order
+      // Client KHÔNG BAO GIỜ đọc trực tiếp — sẽ lộ thông tin account chưa bán
+      allow read:  if isAdminOrServer();
       allow write: if isAdmin();
     }
 
