@@ -18,18 +18,6 @@ import './CartPage.css';
 
 const TS = { style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' } };
 
-// ─── Group cart entries by account id ───────────────────────────────────────
-const groupCart = (cart) => {
-  const map = new Map();
-  cart.forEach(item => {
-    if (!map.has(item.id)) map.set(item.id, { ...item, qty: 0, cartKeys: [] });
-    const g = map.get(item.id);
-    g.qty++;
-    g.cartKeys.push(item.cartKey || item.id);
-  });
-  return [...map.values()];
-};
-
 // ─── Check flash sale còn active không ────────────────────────────────────────
 const checkFlashSaleActive = async () => {
   try {
@@ -46,6 +34,18 @@ const checkFlashSaleActive = async () => {
   } catch { return true; } // lỗi → giữ nguyên, an toàn hơn
 };
 
+// ─── Group cart items thành [{id, ...item, qty, cartKeys[]}] ──────────────────
+const groupCart = (cart) => {
+  const map = new Map();
+  cart.forEach(item => {
+    if (!map.has(item.id)) map.set(item.id, { ...item, qty: 0, cartKeys: [] });
+    const g = map.get(item.id);
+    g.qty++;
+    g.cartKeys.push(item.cartKey || item.id);
+  });
+  return [...map.values()];
+};
+
 const CartPage = ({ cart, setCart }) => {
   const { currentUser, userProfile, fetchUserProfile } = useAuth();
   const navigate = useNavigate();
@@ -59,6 +59,7 @@ const CartPage = ({ cart, setCart }) => {
   const { voucher, voucherError, voucherLoading, applyVoucher, calculateDiscount, getVoucherUpdatePayload, clearVoucher } = useVoucher();
   const { getBulkDiscount } = useBulkDiscount();
 
+  // Memoize để tránh recompute mỗi render
   const hasSaleItems = useMemo(() => cart.some(i => i.salePrice && i.salePrice < i.price), [cart]);
   const grouped      = useMemo(() => groupCart(cart), [cart]);
 
@@ -114,24 +115,21 @@ const CartPage = ({ cart, setCart }) => {
     return () => { cancelled = true; clearInterval(interval); };
   }, [voucher?.id]);
 
-  // ── Qty controls — mỗi unit là 1 combo ──────────────────────────────────────
-  const increaseQty = useCallback((accountId, account) => {
-    const inCart    = cart.filter(i => i.id === accountId).length;
-    const stockLeft = (account.stock || 1) - (account.soldCount || 0);
-    if (inCart >= stockLeft) {
-      toast.error(`Chỉ còn ${stockLeft} combo trong kho.`, TS); return;
+  // ── Qty controls ─────────────────────────────────────────────────────────────
+  const increaseQty = useCallback((accountId) => {
+    const item = cart.find(i => i.id === accountId);
+    if (!item) return;
+    const currentQty = cart.filter(i => i.id === accountId).length;
+    const maxStock = (item.quantity || 1) - (item.soldCount || 0);
+    if (currentQty >= maxStock) {
+      toast.error(`Chỉ còn ${maxStock} nick khả dụng.`, TS); return;
     }
-    setCart(prev => [...prev, {
-      ...account,
-      cartKey: accountId + '_add_' + Date.now(),
-      buyQty: undefined,
-    }]);
+    setCart(prev => [...prev, { ...item, cartKey: accountId + '_add_' + Date.now(), buyQty: undefined }]);
   }, [cart]);
 
   const decreaseQty = useCallback((accountId) => {
     setCart(prev => {
-      const lastIdx = [...prev].map((i, idx) => ({ i, idx }))
-        .filter(({ i }) => i.id === accountId).pop()?.idx;
+      const lastIdx = [...prev].map((i, idx) => ({ i, idx })).filter(({ i }) => i.id === accountId).pop()?.idx;
       if (lastIdx === undefined) return prev;
       return prev.filter((_, i) => i !== lastIdx);
     });
@@ -176,7 +174,7 @@ const CartPage = ({ cart, setCart }) => {
       const snapByDocId  = {};
       uniqueIds.forEach((id, idx) => { snapByDocId[id] = accountSnaps[idx]; });
 
-      // Pre-validate: check status + số combo trong cart <= stockLeft
+      // Pre-validate
       for (const id of uniqueIds) {
         const snap = snapByDocId[id];
         const cartItem = cart.find(x => x.id === id);
@@ -184,15 +182,14 @@ const CartPage = ({ cart, setCart }) => {
           toast.error(`Tài khoản "${cartItem?.title}" không còn tồn tại.`, TS); return;
         }
         const d = snap.data();
-        const stockLeft  = (d.stock || 1) - (d.soldCount || 0);
-        const wantCombos = cart.filter(x => x.id === id).length;
+        const wantUnits = cart.filter(x => x.id === id).length;
+        const stockLeft = (d.quantity || 1) - (d.soldCount || 0);
         if (d.status !== 'available' || stockLeft <= 0) {
           toast.error(`Tài khoản "${cartItem?.title}" đã hết hàng.`, TS);
           setCart(prev => prev.filter(x => x.id !== id)); return;
         }
-        if (wantCombos > stockLeft) {
-          toast.error(`"${cartItem?.title}": chỉ còn ${stockLeft} combo, bạn đang chọn ${wantCombos}.`, TS);
-          return;
+        if (wantUnits > stockLeft) {
+          toast.error(`"${cartItem?.title}": chỉ còn ${stockLeft} nick, bạn đang chọn ${wantUnits}.`, TS); return;
         }
       }
 
@@ -239,6 +236,7 @@ const CartPage = ({ cart, setCart }) => {
       }
 
       const verifiedTotal = Math.round(Math.max(0, verifiedSubtotal - verifiedBulkDiscount - verifiedVoucherDiscount));
+      const txVerifiedSoldCount = {};
 
       // ══════════════════════════════════════════════
       // ATOMIC TRANSACTION — ALL READS BEFORE ALL WRITES
@@ -265,12 +263,12 @@ const CartPage = ({ cart, setCart }) => {
           const cartItem = cart.find(x => x.id === id);
           if (!snap.exists()) throw new Error(`Tài khoản "${cartItem?.title}" không tồn tại.`);
           const sd = snap.data();
-          const stockLeft  = (sd.stock || 1) - (sd.soldCount || 0);
-          const wantCombos = cart.filter(x => x.id === id).length;
-          if (sd.status !== 'available' || stockLeft <= 0)
+          const sc = sd.soldCount || 0;
+          const qt = sd.quantity  || 1;
+          const wantUnits = cart.filter(x => x.id === id).length;
+          if (sd.status !== 'available' || sc + wantUnits > qt)
             throw new Error(`Tài khoản "${cartItem?.title}" vừa hết hàng.`);
-          if (wantCombos > stockLeft)
-            throw new Error(`"${cartItem?.title}": chỉ còn ${stockLeft} combo trong kho.`);
+          txVerifiedSoldCount[id] = sc;
         }
 
         if (vSnap !== null) {
@@ -293,16 +291,27 @@ const CartPage = ({ cart, setCart }) => {
         if (vSnap !== null) transaction.update(voucherRef, getVoucherUpdatePayload(currentUser.email));
       });
 
-      // ── Build order items (không có credentials — server inject sau) ────────
-      // Mỗi item là 1 combo, server sẽ inject tất cả slots khi /checkout/confirm được gọi
+      // ── Build order items WITHOUT credentials ─────────────────────────────
+      // FIX: Không đọc credentials subcollection từ client nữa.
+      // Credentials sẽ được server inject vào order record khi /checkout/confirm được gọi.
+      // → Rule credentials subcollection có thể là isAdmin() only — an toàn tuyệt đối.
+      // → Không có bất kỳ user login nào đọc được credentials của account chưa mua.
+      const unitOffsetByDoc = {};
+      uniqueIds.forEach(id => { unitOffsetByDoc[id] = 0; });
       const verifiedItems = cart.map((cartItem) => {
+        const dbData = snapByDocId[cartItem.id].data();
         const { finalPrice, dbPrice } = verifiedPriceByCartKey[cartItem.cartKey || cartItem.id];
+        const baseSoldCount = txVerifiedSoldCount[cartItem.id] ?? (dbData.soldCount || 0);
+        const offset = unitOffsetByDoc[cartItem.id];
+        const slotIndex = baseSoldCount + offset;
+        unitOffsetByDoc[cartItem.id]++;
+        // Credentials KHÔNG đọc ở đây — server /checkout/confirm sẽ inject sau
         return {
           ...cartItem, verifiedPrice: finalPrice, dbPrice,
+          // credentials placeholder — server sẽ update order với credentials thực
           loginUsername: '', loginPassword: '',
           loginEmail:    '', loginNote:     '',
           attachmentContent: null, attachmentUrl: null, attachmentName: null,
-          credentials: [], // server sẽ inject tất cả slots
         };
       });
 
@@ -436,12 +445,14 @@ const CartPage = ({ cart, setCart }) => {
                 </div>
               )}
 
-              {/* Cart items — grouped by account, qty = số combo */}
+              {/* Grouped cart rows */}
               {grouped.map(group => {
-                const hasSale   = group.salePrice && group.salePrice < group.price;
+                const hasSale  = group.salePrice && group.salePrice < group.price;
                 const unitPrice = hasSale ? group.salePrice : group.price;
-                const stockLeft = (group.stock || 1) - (group.soldCount || 0);
-                const canIncrease = group.qty < stockLeft;
+                const groupTotal = unitPrice * group.qty;
+                const maxStock = (group.quantity || 1) - (group.soldCount || 0);
+                const canIncrease = group.qty < maxStock;
+
                 return (
                   <div key={group.id} className="cart-item card">
                     {/* Thumbnail */}
@@ -464,15 +475,10 @@ const CartPage = ({ cart, setCart }) => {
                             <Flame size={8} /> FLASH SALE
                           </span>
                         )}
-                        {(group.quantity || 1) > 1 && (
-                          <span style={{ fontSize:11, color:'var(--accent)', fontWeight:600 }}>
-                            <Package size={10} /> Combo {group.quantity} accounts
-                          </span>
-                        )}
                       </div>
                       {group.qty > 1 && (
                         <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:3 }}>
-                          {unitPrice.toLocaleString('vi-VN')}đ / combo
+                          {unitPrice.toLocaleString('vi-VN')}đ / nick
                         </div>
                       )}
                     </div>
@@ -484,15 +490,19 @@ const CartPage = ({ cart, setCart }) => {
                         onClick={() => decreaseQty(group.id)}
                         disabled={group.qty <= 1}
                         aria-label="Giảm"
-                      ><span>−</span></button>
+                      >
+                        <span>−</span>
+                      </button>
                       <span className="qty-display">{group.qty}</span>
                       <button
                         className={`qty-btn qty-btn-plus${!canIncrease ? ' qty-btn-maxed' : ''}`}
-                        onClick={() => increaseQty(group.id, group)}
+                        onClick={() => increaseQty(group.id)}
                         disabled={!canIncrease}
                         aria-label="Tăng"
-                        title={!canIncrease ? `Còn tối đa ${stockLeft} combo` : ''}
-                      ><span>+</span></button>
+                        title={!canIncrease ? `Còn tối đa ${maxStock} nick` : ''}
+                      >
+                        <span>+</span>
+                      </button>
                     </div>
 
                     {/* Price */}
@@ -503,11 +513,11 @@ const CartPage = ({ cart, setCart }) => {
                             {(group.price * group.qty).toLocaleString('vi-VN')}đ
                           </div>
                           <div style={{ color:'#ff6b6b', fontWeight:700 }}>
-                            {(unitPrice * group.qty).toLocaleString('vi-VN')}đ
+                            {groupTotal.toLocaleString('vi-VN')}đ
                           </div>
                         </div>
                       ) : (
-                        <span>{(unitPrice * group.qty).toLocaleString('vi-VN')}đ</span>
+                        <span>{groupTotal.toLocaleString('vi-VN')}đ</span>
                       )}
                     </div>
 
@@ -605,7 +615,7 @@ const CartPage = ({ cart, setCart }) => {
                 </div>
                 <hr className="divider" />
                 <div className="summary-line" style={{ color:'var(--text-secondary)' }}>
-                  <span>Tạm tính ({grouped.length} loại · {totalItems} combo)</span>
+                  <span>Tạm tính ({totalItems} nick)</span>
                   <span>{subtotal.toLocaleString('vi-VN')}đ</span>
                 </div>
                 {bulkDiscountAmt > 0 && (

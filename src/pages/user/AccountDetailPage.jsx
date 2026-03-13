@@ -22,8 +22,8 @@ const AccountDetailPage = ({ onAddToCart }) => {
   const [account, setAccount]   = useState(null);
   const [loading, setLoading]   = useState(true);
   const [currentImg, setCurrentImg] = useState(0);
+  const [buyQty, setBuyQty]     = useState(1);
   const [activeTab, setActiveTab] = useState('info'); // 'info' | 'ratings'
-  const [buyQty, setBuyQty]         = useState(1);
   const [ratingCount, setRatingCount] = useState(null); // updated by RatingWidget via callback
   const { isWishlisted, toggle: toggleWishlist } = useWishlist(currentUser);
   useSEO(account ? {
@@ -56,25 +56,27 @@ const AccountDetailPage = ({ onAddToCart }) => {
   );
 
   const images     = account.images || [];
-  const quantity   = account.quantity  != null ? account.quantity  : 1; // số accounts trong 1 combo
-  const stock      = account.stock     != null ? account.stock     : 1; // số combo trong kho
-  const soldCount  = account.soldCount != null ? account.soldCount : 0;
-  const stockLeft  = Math.max(0, stock - soldCount);
-  const isSold     = account.status === 'sold' || stockLeft <= 0;
+  const quantity   = account.quantity   != null ? account.quantity   : 1;
+  const soldCount  = account.soldCount  != null ? account.soldCount  : 0;
+  const stock      = Math.max(0, quantity - soldCount); // actual remaining stock
+  const maxQty     = stock; // no artificial cap — let cart limit handle it
+  const isSold     = account.status === 'sold' || stock <= 0;
 
-  const salePrice  = activeFlashSale ? getSalePrice(account.price, account.gameType) : null;
-  const unitPrice  = (activeFlashSale && salePrice && salePrice < account.price) ? salePrice : account.price;
+  const salePrice = activeFlashSale ? getSalePrice(account.price, account.gameType) : null;
+  const unitPrice = (activeFlashSale && salePrice && salePrice < account.price) ? salePrice : account.price;
   const totalPrice = unitPrice * buyQty;
 
   const handleAddToCart = (goToCart = false) => {
     if (!currentUser) { navigate('/login'); return; }
     if (isSold) return;
+    // Add buyQty copies — each as separate cart item (same account, different buyQty stamp)
+    // We encode qty into the item so CartPage knows to handle it
     onAddToCart?.({
       ...account,
       salePrice: (activeFlashSale && salePrice && salePrice < account.price) ? salePrice : null,
-      buyQty,
+      buyQty,          // how many the buyer wants
     });
-    toast.success(buyQty > 1 ? `Đã thêm ${buyQty} combo vào giỏ!` : 'Đã thêm vào giỏ!', TS);
+    toast.success(`Đã thêm ${buyQty > 1 ? buyQty + ' nick' : ''} vào giỏ!`, TS);
     if (goToCart) navigate('/cart');
   };
 
@@ -119,7 +121,7 @@ const AccountDetailPage = ({ onAddToCart }) => {
               <span className="badge badge-accent">{account.gameType}</span>
               {account.featured && <span className="badge badge-gold"><Star size={10} /> Nổi bật</span>}
               <span className={`badge ${isSold ? 'badge-danger' : 'badge-success'}`}>
-                {isSold ? '● Hết hàng' : stockLeft > 1 ? `● Còn ${stockLeft} combo` : '● Còn hàng'}
+                {isSold ? '● Hết hàng' : stock > 1 ? `● Còn ${stock} nick` : '● Còn hàng'}
               </span>
             </div>
 
@@ -177,45 +179,41 @@ const AccountDetailPage = ({ onAddToCart }) => {
                   </>
                 )}
               </div>
-              {/* Combo label when multiple accounts */}
-              {quantity > 1 && (
-                <div style={{ fontSize: 12, color: 'var(--accent)', marginTop: 4, fontWeight: 600 }}>
-                  <Package size={12} style={{ display:'inline', marginRight:4 }}/>
-                  Bao gồm {quantity} accounts
+              {/* Per-unit label when qty > 1 */}
+              {buyQty > 1 && (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                  × {buyQty} nick = <strong style={{ color: 'var(--gold)' }}>{totalPrice.toLocaleString('vi-VN')}đ</strong>
                 </div>
               )}
             </div>
 
-            {/* Qty selector removed — mỗi item là 1 combo cố định */}
-            
-
-            {/* Qty selector — só combo muốn mua */}
-            {!isSold && stockLeft > 1 && (
+            {/* ── Quantity selector — only show if stock > 1 ── */}
+            {!isSold && stock > 1 && (
               <div className="qty-selector">
                 <div className="qty-label">
                   <Package size={14} />
-                  <span>Số combo</span>
-                  <span className="qty-stock">({stockLeft} có sẵn)</span>
+                  <span>Số lượng</span>
+                  <span className="qty-stock">({stock} nick có sẵn)</span>
                 </div>
                 <div className="qty-controls">
-                  <button type="button" className="qty-btn"
+                  <button
+                    type="button"
+                    className="qty-btn"
                     onClick={() => setBuyQty(q => Math.max(1, q - 1))}
-                    disabled={buyQty <= 1}>
+                    disabled={buyQty <= 1}
+                  >
                     <Minus size={14} />
                   </button>
                   <span className="qty-value">{buyQty}</span>
-                  <button type="button" className="qty-btn"
-                    onClick={() => setBuyQty(q => Math.min(stockLeft, q + 1))}
-                    disabled={buyQty >= stockLeft}>
+                  <button
+                    type="button"
+                    className="qty-btn"
+                    onClick={() => setBuyQty(q => Math.min(maxQty, q + 1))}
+                    disabled={buyQty >= maxQty}
+                  >
                     <Plus size={14} />
                   </button>
                 </div>
-              </div>
-            )}
-            {buyQty > 1 && (
-              <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:8 }}>
-                {unitPrice.toLocaleString('vi-VN')}đ × {buyQty} combo =&nbsp;
-                <strong style={{ color:'var(--gold)' }}>{totalPrice.toLocaleString('vi-VN')}đ</strong>
               </div>
             )}
 
@@ -228,7 +226,7 @@ const AccountDetailPage = ({ onAddToCart }) => {
                 style={{ flex: 1 }}
               >
                 <Zap size={18} />
-                {isSold ? 'Hết hàng' : buyQty > 1 ? `Mua ${buyQty} combo` : 'Mua ngay'}
+                {isSold ? 'Hết hàng' : buyQty > 1 ? `Mua ${buyQty} nick` : 'Mua ngay'}
               </button>
               <button
                 className="btn btn-ghost btn-lg"
@@ -255,10 +253,8 @@ const AccountDetailPage = ({ onAddToCart }) => {
                 { icon: <Zap size={16} style={{ color: 'var(--accent)' }} />, text: 'Nhận thông tin tức thì' },
                 { icon: <Clock size={16} style={{ color: 'var(--gold)' }} />, text: 'Hỗ trợ 24/7' },
                 { icon: <Eye size={16} style={{ color: 'var(--accent2)' }} />, text: `${account.views || 0} lượt xem` },
-                { icon: <Package size={16} style={{ color: isSold ? 'var(--danger)' : 'var(--success)' }} />,
-                  text: quantity > 1
-                    ? `Combo ${quantity} accounts · Còn ${stockLeft}/${stock} kho`
-                    : `Còn ${stockLeft}/${stock} kho` },
+                { icon: <Package size={16} style={{ color: account.soldCount >= account.quantity ? 'var(--danger)' : 'var(--success)' }} />,
+                  text: `Còn ${Math.max(0,(account.quantity||1)-(account.soldCount||0))}/${account.quantity||1} slot` },
               ].map((g, i) => (
                 <div key={i} className="guarantee-item">{g.icon}<span>{g.text}</span></div>
               ))}

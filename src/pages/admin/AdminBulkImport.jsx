@@ -8,7 +8,7 @@ import toast from 'react-hot-toast';
 
 const TS = { style:{ background:'var(--bg-card)', color:'var(--text-primary)', border:'1px solid var(--border)' }};
 
-const TEMPLATE_CSV = `title,price,gameType,rank,server,stock,loginUsername,loginPassword,loginEmail,loginNote
+const TEMPLATE_CSV = `title,price,gameType,rank,server,loginUsername,loginPassword,loginEmail,loginNote
 "LMHT - Rank Vàng 3 - 80 tướng",150000,LMHT,Vàng 3,VN,username1,password1,email@gmail.com,Ghi chú tùy chọn
 "Liên Quân - Kim Cương - Full tướng",200000,Liên Quân,Kim Cương,Việt Nam,username2,password2,,
 "Valorant - Immortal",350000,Valorant,Immortal,Asia,username3,password3,,`;
@@ -96,7 +96,6 @@ const AdminBulkImport = () => {
 
         // FIX: tách credentials ra subcollection /accounts/{id}/credentials/slots
         // KHÔNG đặt credentials trong main doc (main doc có allow read: if true → public!)
-        const stockVal = Math.max(1, parseInt(r.stock || r.Stock || '1') || 1);
         const publicPayload = {
           title:         r.title.trim(),
           price:         Number(r.price),
@@ -105,8 +104,7 @@ const AdminBulkImport = () => {
           rank:          (r.rank||'').trim()||null,
           server:        (r.server||'').trim()||null,
           status:        'available',
-          quantity:      1,   // số accounts trong 1 combo (BulkImport = 1 account/combo)
-          stock:         stockVal, // số combo trong kho
+          quantity:      1,
           soldCount:     0,
           views:         0,
           images:        [],
@@ -116,9 +114,8 @@ const AdminBulkImport = () => {
         // KHÔNG có: credentials, loginUsername, loginPassword, loginEmail, loginNote
         const accountRef = await addDoc(collection(db,'accounts'), publicPayload);
         // Credentials vào subcollection — rule: allow read/write: if isAdmin()
-        // slots[] = stock copies of the credential (1 account per combo × stock combos)
         await setDoc(doc(db,'accounts', accountRef.id, 'credentials', 'slots'), {
-          slots: Array(stockVal).fill(cred),
+          slots: [cred],
           updatedAt: serverTimestamp(),
         });
         success++;
@@ -224,7 +221,6 @@ const AdminBulkImport = () => {
         <div style={{fontSize:13,color:'var(--text-secondary)',lineHeight:2}}>
           <div>• Tải template CSV mẫu, điền thông tin vào từng dòng</div>
           <div>• Các cột bắt buộc: <code>title</code>, <code>price</code>, <code>gameType</code>, <code>loginUsername</code></div>
-          <div>• <code>stock</code>: số combo trong kho (mặc định 1 nếu để trống)</div>
           <div>• Các cột tùy chọn: <code>rank</code>, <code>server</code>, <code>loginPassword</code>, <code>loginEmail</code>, <code>loginNote</code></div>
           <div>• Mỗi dòng = 1 account với 1 slot credential</div>
           <div>• File phải được lưu dạng UTF-8 để hỗ trợ tiếng Việt</div>

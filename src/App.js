@@ -1574,17 +1574,15 @@ const AppContent = () => {
         ));
         let changed = false;
         let salePriceCleared = false;
-        // Validate: status available + còn stock, count per id <= stockLeft
-        const countById = {};
+        const soldCountTracker = {};
         const validCart = currentCart.filter(item => {
           const snap = snapMap[item.id];
           if (!snap || !snap.exists()) { changed = true; return false; }
           const d = snap.data();
-          const stockLeft = (d.stock || 1) - (d.soldCount || 0);
+          const used = soldCountTracker[item.id] || 0;
+          const stockLeft = (d.quantity || 1) - (d.soldCount || 0) - used;
           if (d.status !== 'available' || stockLeft <= 0) { changed = true; return false; }
-          const count = countById[item.id] || 0;
-          if (count >= stockLeft) { changed = true; return false; }
-          countById[item.id] = count + 1;
+          soldCountTracker[item.id] = used + 1;
           return true;
         }).map(item => {
           // ✅ Clear stale salePrice if no active flash sale
@@ -1618,25 +1616,24 @@ const AppContent = () => {
 
   const addToCart = (account) =>
     setCartPersist(prev => {
-      // buyQty = số combo muốn thêm (default 1)
-      const wantQty    = Math.max(1, account.buyQty || 1);
-      const inCart     = prev.filter(i => i.id === account.id).length;
-      const stockLeft  = (account.stock || 1) - (account.soldCount || 0);
-      const canAdd     = Math.min(wantQty, stockLeft - inCart, maxCartItems - prev.length);
-      if (canAdd <= 0) {
+      const qty     = Math.max(1, account.buyQty || 1);
+      // How many slots of this account are already in cart
+      const already = prev.filter(i => i.id === account.id).length;
+      // How many more we can add (limited by stock and dynamic cart cap from settings)
+      const maxAdd  = Math.min(qty, (account.quantity || 1) - already, maxCartItems - prev.length);
+      if (maxAdd <= 0) {
         import('react-hot-toast').then(({ default: toast }) => {
           if (prev.length >= maxCartItems) toast.error(`Giỏ hàng tối đa ${maxCartItems} sản phẩm!`);
-          else if (inCart >= stockLeft)    toast.error('Đã thêm tối đa số lượng còn trong kho!');
-          else                             toast.error('Không thể thêm thêm sản phẩm này!');
+          else toast.error('Đã thêm tối đa số lượng có sẵn!');
         });
         return prev;
       }
-      // Mỗi combo = 1 cart entry riêng (vì credentials khác nhau)
+      // Create maxAdd separate cart entries, each with a unique cartKey
       const ts = Date.now();
-      const newItems = Array.from({ length: canAdd }, (_, i) => ({
+      const newItems = Array.from({ length: maxAdd }, (_, i) => ({
         ...account,
-        cartKey: account.id + '_' + ts + '_' + (inCart + i),
-        buyQty:  undefined,
+        cartKey: account.id + '_' + ts + '_' + (already + i),
+        buyQty: undefined,
       }));
       return [...prev, ...newItems];
     });

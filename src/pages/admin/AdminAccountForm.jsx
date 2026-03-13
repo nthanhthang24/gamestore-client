@@ -149,7 +149,6 @@ const AdminAccountForm = () => {
     title:'', gameType:'', rank:'', price:'', originalPrice:'',
     description:'', status:'available', featured:false,
     quantity: 1,
-    stock: 1,
   });
   const [gameTypeList, setGameTypeList] = useState([]);
   const [stats, setStats]       = useState([{ key:'', value:'' }]);
@@ -158,6 +157,7 @@ const AdminAccountForm = () => {
   const [previews, setPreviews] = useState([]);
   const [loading, setLoading]   = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [existingSoldCount, setExistingSoldCount] = useState(0); // track for edit qty validation
 
   // credentials = array of slots, length always === form.quantity
   const [credentials, setCredentials] = useState([emptySlot()]);
@@ -181,10 +181,11 @@ const AdminAccountForm = () => {
       title: d.title||'', gameType: d.gameType||'', rank: d.rank||'',
       price: d.price||'', originalPrice: d.originalPrice||'',
       description: d.description||'', status: d.status||'available',
-      featured: d.featured||false, quantity: qty, stock: d.stock || 1,
+      featured: d.featured||false, quantity: qty,
     });
     setImages(d.images||[]);
     if (d.stats) setStats(Object.entries(d.stats).map(([key,value]) => ({ key, value })));
+    setExistingSoldCount(d.soldCount || 0);
 
     // BUG FIX: credentials đã chuyển sang subcollection từ Sprint 25
     // Public doc không còn chứa credentials → phải đọc từ accounts/{id}/credentials/slots
@@ -324,9 +325,9 @@ const AdminAccountForm = () => {
     if (Number(form.price) <= 0)    { toast.error('Giá bán phải > 0!'); return; }
     if (form.originalPrice && Number(form.originalPrice) < Number(form.price))
       { toast.error('Giá gốc phải ≥ giá bán!'); return; }
-    // Validate tối thiểu 1 slot
-    if (credentials.length < 1) {
-      toast.error('Cần ít nhất 1 slot credentials.');
+    // BUG-AAF-1: Prevent reducing quantity below already-sold count
+    if (isEdit && credentials.length < existingSoldCount) {
+      toast.error(`Không thể giảm số lượng xuống ${credentials.length} — đã bán ${existingSoldCount} slot. Số lượng tối thiểu: ${existingSoldCount}.`);
       return;
     }
 
@@ -383,12 +384,12 @@ const AdminAccountForm = () => {
         images:       [...images, ...uploadedImgUrls],
         stats:        statsObj,
         quantity:     qty,
-        stock:        Number(form.stock) || 1,
-        // soldCount không còn dùng — item bán 1 lần, dùng status thôi
+        soldCount:    isEdit ? undefined : 0,
         updatedAt:    serverTimestamp(),
         // ❌ REMOVED: credentials, loginUsername, loginPassword, loginEmail, loginNote,
         //             attachmentContent, attachmentName — these are now in subcollection only
       };
+      if (publicPayload.soldCount === undefined) delete publicPayload.soldCount;
 
       // Private credentials payload → /accounts/{id}/credentials/slots (admin-only)
       const privatePayload = {
@@ -411,6 +412,7 @@ const AdminAccountForm = () => {
         toast.success('Cập nhật thành công!', { style:{ background:'var(--bg-card)', color:'var(--text-primary)', border:'1px solid var(--border)' } });
       } else {
         publicPayload.createdAt = serverTimestamp();
+        publicPayload.soldCount = 0;
         publicPayload.views = 0;
         const ref = await addDoc(collection(db, 'accounts'), publicPayload);
         accountId = ref.id;
@@ -486,38 +488,25 @@ const AdminAccountForm = () => {
                 </div>
                 <div className="form-group">
                   <label className="form-label">
-                    Số accounts trong 1 combo
+                    Số lượng
                     {form.quantity > 1 && (
-                      <span className="qty-badge">{form.quantity} accounts/combo</span>
+                      <span className="qty-badge">{form.quantity} slot</span>
                     )}
                   </label>
+                  {/* Readonly — số lượng tự động = số slots đang có.
+                      Thêm slot bằng nút "+ Thêm slot" hoặc Bulk Paste. */}
                   <input type="number" name="quantity" value={form.quantity}
                     readOnly
                     className="form-input" style={{ background:'var(--bg-hover)', cursor:'not-allowed', color:'var(--text-muted)' }}
-                    title="Tự động = số slot credentials. Dùng + Thêm slot hoặc Bulk Paste."/>
+                    title="Số lượng tự động = số slots bên dưới. Dùng '+ Thêm slot' hoặc Bulk Paste để thay đổi."/>
                   <p style={{ fontSize:11, color:'var(--text-muted)', marginTop:4 }}>
-                    Tự động = số slot credentials. Dùng <strong>+ Thêm slot</strong> hoặc <strong>Bulk Paste</strong> để thay đổi.
-                  </p>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">
-                    Số combo trong kho (tồn kho)
-                    {form.stock > 1 && (
-                      <span className="qty-badge" style={{ background:'rgba(46,213,115,0.15)', color:'var(--success)' }}>{form.stock} combo</span>
-                    )}
-                  </label>
-                  <input type="number" name="stock" value={form.stock}
-                    onChange={e => setForm(p => ({ ...p, stock: Math.max(1, parseInt(e.target.value)||1) }))}
-                    className="form-input" min="1"
-                    placeholder="1"/>
-                  <p style={{ fontSize:11, color:'var(--text-muted)', marginTop:4 }}>
-                    Số lần item này có thể được mua. Cần có <strong>{form.quantity * (Number(form.stock)||1)} slots</strong> credentials tổng cộng.
+                    Tự động = số slots. Dùng <strong>+ Thêm slot</strong> hoặc <strong>Bulk Paste</strong> để thay đổi.
                   </p>
                 </div>
               </div>
               {form.quantity > 1 && (
                 <div className="qty-info-bar">
-                  <span>📦 Combo gồm <strong>{form.quantity} accounts</strong> · Kho: <strong>{form.stock} combo</strong> · Tổng slots cần: <strong>{form.quantity * Number(form.stock || 1)}</strong></span>
+                  <span>📦 Listing này có <strong>{form.quantity} tài khoản</strong> — mỗi slot sẽ được giao cho 1 buyer riêng.</span>
                 </div>
               )}
               <div className="form-group">
