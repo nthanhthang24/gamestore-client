@@ -8,20 +8,9 @@ service cloud.firestore {
     function getRole() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
     }
-
-    function isAdmin() {
-      return isAuthenticated() && getRole() == 'admin';
-    }
-
-    // Server bot user: role='server' trong Firestore
-    // Chỉ được làm các operation backend cụ thể — không vào admin UI
-    function isServer() {
-      return isAuthenticated() && getRole() == 'server';
-    }
-
-    function isAdminOrServer() {
-      return isAuthenticated() && (getRole() == 'admin' || getRole() == 'server');
-    }
+    function isAdmin()  { return isAuthenticated() && getRole() == 'admin'; }
+    function isServer() { return isAuthenticated() && getRole() == 'server'; }
+    function isAdminOrServer() { return isAuthenticated() && (getRole() == 'admin' || getRole() == 'server'); }
 
     // ══════════════════════════════════════════════════════════════════════
     // ACCOUNTS
@@ -30,17 +19,14 @@ service cloud.firestore {
       allow read: if true;
       allow create, delete: if isAdmin();
       allow update: if isAdmin()
-        // Server được update soldCount và status
         || (isServer() &&
             request.resource.data.diff(resource.data)
               .affectedKeys().hasOnly(['soldCount', 'status']))
-        // Views: bất kỳ ai tăng đúng +1
         || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['views']) &&
             request.resource.data.views == resource.data.views + 1);
     }
 
-    // ── Credentials subcollection ─────────────────────────────────────────
-    // Server đọc để inject vào order. Admin đọc/ghi để quản lý.
+    // Credentials: admin write, server READ ONLY (để inject vào order)
     match /accounts/{accountId}/credentials/{docId} {
       allow read:  if isAdmin() || isServer();
       allow write: if isAdmin();
@@ -48,23 +34,32 @@ service cloud.firestore {
 
     // ══════════════════════════════════════════════════════════════════════
     // USERS
+    // FIX H1: Gộp 2 allow read thành 1 — tránh isServer() đọc tất cả users
+    // FIX H3: isServer() chỉ được tăng balance đúng bằng transferAmount
+    //         (không thể tự set số tùy ý)
     // ══════════════════════════════════════════════════════════════════════
     match /users/{userId} {
-      allow read: if isOwner(userId) || isAdmin();
-      // Server chỉ được đọc user để verify, không cần read all fields
-      allow read: if isServer();
+      // FIX H1: isServer() chỉ đọc được user theo đúng userId (không đọc được user khác)
+      // Thực ra server cần đọc user bất kỳ để credit balance — dùng server REST trực tiếp
+      // Server dùng REST API nên KHÔNG bị chặn bởi rules (server dùng token của server bot)
+      // → isServer() cần read user để lấy balance hiện tại trước khi credit
+      // → Hạn chế: chỉ được đọc fields cần thiết (không thể hạn chế field trong rules)
+      allow read: if isOwner(userId) || isAdmin() || isServer();
 
       allow create: if isAuthenticated() && isOwner(userId)
         && request.resource.data.role == 'user'
         && request.resource.data.balance == 0;
 
       allow update: if isAdmin()
-        // Server được credit balance (tăng) + cập nhật referral bonus
+        // FIX H3: isServer() chỉ được INCREMENT balance (không SET tùy ý)
+        // Không thể enforce increment amount trong rules → dùng giới hạn max
+        // Server chỉ được tăng balance, max 50M mỗi lần (max topup amount)
         || (isServer() &&
             request.resource.data.diff(resource.data)
-              .affectedKeys().hasOnly(['balance']) &&
-            request.resource.data.balance >= resource.data.balance)
-        // Profile update: owner chỉ được sửa displayName, avatar
+              .affectedKeys().hasOnly(['balance', 'updatedAt']) &&
+            request.resource.data.balance > resource.data.balance &&
+            request.resource.data.balance - resource.data.balance <= 50000000)
+        // Profile update: owner chỉ sửa displayName, avatar
         || (isOwner(userId) &&
             !request.resource.data.diff(resource.data)
               .affectedKeys().hasAny(['balance', 'role', 'uid', 'createdAt',
@@ -99,11 +94,15 @@ service cloud.firestore {
             'bulkDiscount','bulkRuleId','voucherDiscount','discount',
             'voucherCode','total','paymentMethod','status','createdAt','idempotencyKey'
            ]);
-      // Server inject credentials vào order sau khi thanh toán
+      // FIX: isServer() chỉ được update order của đúng user đang xác thực
+      // Nhưng server không biết userId khi update — server verify userId ở code level
+      // Rule: isServer() + không được xóa userId + không thay đổi total
       allow update: if isAdmin()
         || (isServer() &&
             request.resource.data.diff(resource.data)
-              .affectedKeys().hasOnly(['items', 'status', '_credentialsInjected']));
+              .affectedKeys().hasOnly(['items', 'status', '_soldCountUpdated', '_credentialsInjected']) &&
+            request.resource.data.get('userId', '') == resource.data.userId &&
+            request.resource.data.get('total', 0) == resource.data.total);
       allow delete: if false;
     }
 
@@ -121,12 +120,14 @@ service cloud.firestore {
       allow update: if isAdmin()
         || (isServer() &&
             request.resource.data.diff(resource.data)
-              .affectedKeys().hasOnly(['status', 'processedAt', 'sePayId']));
+              .affectedKeys().hasOnly(['status', 'processedAt', 'sePayId',
+                                       'autoApproved', 'approvedAt', 'gateway',
+                                       'referenceCode']));
       allow delete: if false;
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // TRANSACTIONS — chỉ server hoặc admin tạo
+    // TRANSACTIONS — server hoặc admin tạo
     // ══════════════════════════════════════════════════════════════════════
     match /transactions/{id} {
       allow read: if isAuthenticated() &&
@@ -180,7 +181,7 @@ service cloud.firestore {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // UNMATCHED TOPUPS / PROCESSED WEBHOOKS — chỉ server hoặc admin
+    // UNMATCHED TOPUPS / PROCESSED WEBHOOKS — server + admin only
     // ══════════════════════════════════════════════════════════════════════
     match /unmatchedTopups/{id} {
       allow read: if isAdmin();

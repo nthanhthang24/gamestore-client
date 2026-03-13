@@ -307,7 +307,7 @@ const CartPage = ({ cart, setCart }) => {
         unitOffsetByDoc[cartItem.id]++;
         // Credentials KHÔNG đọc ở đây — server /checkout/confirm sẽ inject sau
         return {
-          ...cartItem, verifiedPrice: finalPrice, dbPrice, _slotIndex: slotIndex,
+          ...cartItem, verifiedPrice: finalPrice, dbPrice,
           // credentials placeholder — server sẽ update order với credentials thực
           loginUsername: '', loginPassword: '',
           loginEmail:    '', loginNote:     '',
