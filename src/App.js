@@ -1574,14 +1574,15 @@ const AppContent = () => {
         ));
         let changed = false;
         let salePriceCleared = false;
-        // Mỗi item là 1 combo — chỉ cần check status === 'available' và không trùng lặp
+        // Validate: status available + còn stock
         const seenIds = new Set();
         const validCart = currentCart.filter(item => {
           const snap = snapMap[item.id];
           if (!snap || !snap.exists()) { changed = true; return false; }
           const d = snap.data();
-          if (d.status !== 'available') { changed = true; return false; }
-          // Bỏ duplicate (không thể có 2 items cùng id)
+          const stockLeft = (d.stock || 1) - (d.soldCount || 0);
+          if (d.status !== 'available' || stockLeft <= 0) { changed = true; return false; }
+          // Bỏ duplicate (mỗi listing chỉ có 1 entry trong cart)
           if (seenIds.has(item.id)) { changed = true; return false; }
           seenIds.add(item.id);
           return true;

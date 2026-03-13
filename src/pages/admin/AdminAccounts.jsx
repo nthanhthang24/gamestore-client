@@ -191,6 +191,7 @@ const AdminAccounts = () => {
                   <th>Rank</th>
                   <th>Giá</th>
                   <th>Trạng thái</th>
+                  <th>Kho</th>
                   <th>Lượt xem</th>
                   <th>Thao tác</th>
                 </tr>
@@ -222,6 +223,13 @@ const AdminAccounts = () => {
                       <span className={`badge ${acc.status === 'available' ? 'badge-success' : 'badge-danger'}`}>
                         {acc.status === 'available' ? 'Còn hàng' : 'Đã bán'}
                       </span>
+                    </td>
+                    <td style={{ fontSize:12 }}>
+                      <span style={{ color: (acc.soldCount||0) >= (acc.stock||1) ? 'var(--danger)' : 'var(--success)', fontWeight:600 }}>
+                        {(acc.stock||1) - (acc.soldCount||0)}
+                      </span>
+                      <span style={{ color:'var(--text-muted)' }}>/{acc.stock||1}</span>
+                      {acc.quantity > 1 && <span style={{ fontSize:10, color:'var(--accent)', marginLeft:4 }}>×{acc.quantity}</span>}
                     </td>
                     <td>{acc.views || 0}</td>
                     <td>

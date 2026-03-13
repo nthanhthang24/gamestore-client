@@ -141,7 +141,7 @@ const CartPage = ({ cart, setCart }) => {
       const snapByDocId  = {};
       uniqueIds.forEach((id, idx) => { snapByDocId[id] = accountSnaps[idx]; });
 
-      // Pre-validate: mỗi item là 1 combo, chỉ cần check status === 'available'
+      // Pre-validate: check status + còn stock
       for (const id of uniqueIds) {
         const snap = snapByDocId[id];
         const cartItem = cart.find(x => x.id === id);
@@ -149,8 +149,9 @@ const CartPage = ({ cart, setCart }) => {
           toast.error(`Tài khoản "${cartItem?.title}" không còn tồn tại.`, TS); return;
         }
         const d = snap.data();
-        if (d.status !== 'available') {
-          toast.error(`Tài khoản "${cartItem?.title}" đã được bán.`, TS);
+        const stockLeft = (d.stock || 1) - (d.soldCount || 0);
+        if (d.status !== 'available' || stockLeft <= 0) {
+          toast.error(`Tài khoản "${cartItem?.title}" đã hết hàng.`, TS);
           setCart(prev => prev.filter(x => x.id !== id)); return;
         }
       }
@@ -224,8 +225,9 @@ const CartPage = ({ cart, setCart }) => {
           const cartItem = cart.find(x => x.id === id);
           if (!snap.exists()) throw new Error(`Tài khoản "${cartItem?.title}" không tồn tại.`);
           const sd = snap.data();
-          if (sd.status !== 'available')
-            throw new Error(`Tài khoản "${cartItem?.title}" vừa được bán.`);
+          const stockLeft = (sd.stock || 1) - (sd.soldCount || 0);
+          if (sd.status !== 'available' || stockLeft <= 0)
+            throw new Error(`Tài khoản "${cartItem?.title}" vừa hết hàng.`);
         }
 
         if (vSnap !== null) {

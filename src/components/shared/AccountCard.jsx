@@ -15,9 +15,12 @@ const AccountCard = ({ account, onAddToCart, isWishlisted, onToggleWishlist, fla
   // Countdown từ activeFlashSale (đã fetch ở useFlashSale singleton)
   const cd = isFlashSale && flashCountdown && !flashCountdown.expired ? flashCountdown : null;
 
-  const quantity  = account.quantity != null ? account.quantity : 1; // số accounts trong combo
-  const isSold    = account.status === 'sold';
-  const showQty   = quantity > 1; // combo có nhiều accounts
+  const quantity  = account.quantity  != null ? account.quantity  : 1; // số accounts trong 1 combo
+  const stock     = account.stock     != null ? account.stock     : 1; // số combo trong kho
+  const soldCount = account.soldCount != null ? account.soldCount : 0;
+  const stockLeft = Math.max(0, stock - soldCount);
+  const isSold    = account.status === 'sold' || stockLeft <= 0;
+  const showQty   = quantity > 1 || stock > 1;
 
   const rankColors = {
     'Đồng': '#cd7f32', 'Bạc': '#c0c0c0', 'Vàng': '#ffd700',
@@ -46,7 +49,12 @@ const AccountCard = ({ account, onAddToCart, isWishlisted, onToggleWishlist, fla
         {account.featured && !discountPct && <span className="featured-badge"><Star size={10} /> HOT</span>}
         {isSold
           ? <div className="sold-overlay">HẾT HÀNG</div>
-          : showQty && <div className="stock-badge"><Package size={10} /> Combo {quantity} acc</div>
+          : showQty && (
+              <div className="stock-badge">
+                <Package size={10} />
+                {quantity > 1 ? `Combo ${quantity} acc` : ''}{quantity > 1 && stock > 1 ? ' · ' : ''}{stock > 1 ? `Còn ${stockLeft}` : ''}
+              </div>
+            )
         }
       </div>
 

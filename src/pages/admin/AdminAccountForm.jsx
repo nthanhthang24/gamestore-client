@@ -149,6 +149,7 @@ const AdminAccountForm = () => {
     title:'', gameType:'', rank:'', price:'', originalPrice:'',
     description:'', status:'available', featured:false,
     quantity: 1,
+    stock: 1,
   });
   const [gameTypeList, setGameTypeList] = useState([]);
   const [stats, setStats]       = useState([{ key:'', value:'' }]);
@@ -180,7 +181,7 @@ const AdminAccountForm = () => {
       title: d.title||'', gameType: d.gameType||'', rank: d.rank||'',
       price: d.price||'', originalPrice: d.originalPrice||'',
       description: d.description||'', status: d.status||'available',
-      featured: d.featured||false, quantity: qty,
+      featured: d.featured||false, quantity: qty, stock: d.stock || 1,
     });
     setImages(d.images||[]);
     if (d.stats) setStats(Object.entries(d.stats).map(([key,value]) => ({ key, value })));
@@ -382,6 +383,7 @@ const AdminAccountForm = () => {
         images:       [...images, ...uploadedImgUrls],
         stats:        statsObj,
         quantity:     qty,
+        stock:        Number(form.stock) || 1,
         // soldCount không còn dùng — item bán 1 lần, dùng status thôi
         updatedAt:    serverTimestamp(),
         // ❌ REMOVED: credentials, loginUsername, loginPassword, loginEmail, loginNote,
@@ -484,23 +486,38 @@ const AdminAccountForm = () => {
                 </div>
                 <div className="form-group">
                   <label className="form-label">
-                    Số accounts trong combo
+                    Số accounts trong 1 combo
                     {form.quantity > 1 && (
-                      <span className="qty-badge">{form.quantity} accounts</span>
+                      <span className="qty-badge">{form.quantity} accounts/combo</span>
                     )}
                   </label>
                   <input type="number" name="quantity" value={form.quantity}
                     readOnly
                     className="form-input" style={{ background:'var(--bg-hover)', cursor:'not-allowed', color:'var(--text-muted)' }}
-                    title="Tự động = số slots bên dưới."/>
+                    title="Tự động = số slot credentials. Dùng + Thêm slot hoặc Bulk Paste."/>
                   <p style={{ fontSize:11, color:'var(--text-muted)', marginTop:4 }}>
                     Tự động = số slot credentials. Dùng <strong>+ Thêm slot</strong> hoặc <strong>Bulk Paste</strong> để thay đổi.
+                  </p>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">
+                    Số combo trong kho (tồn kho)
+                    {form.stock > 1 && (
+                      <span className="qty-badge" style={{ background:'rgba(46,213,115,0.15)', color:'var(--success)' }}>{form.stock} combo</span>
+                    )}
+                  </label>
+                  <input type="number" name="stock" value={form.stock}
+                    onChange={e => setForm(p => ({ ...p, stock: Math.max(1, parseInt(e.target.value)||1) }))}
+                    className="form-input" min="1"
+                    placeholder="1"/>
+                  <p style={{ fontSize:11, color:'var(--text-muted)', marginTop:4 }}>
+                    Số lần item này có thể được mua. Cần có <strong>{form.quantity * (Number(form.stock)||1)} slots</strong> credentials tổng cộng.
                   </p>
                 </div>
               </div>
               {form.quantity > 1 && (
                 <div className="qty-info-bar">
-                  <span>📦 Combo này gồm <strong>{form.quantity} accounts</strong> — user mua sẽ nhận toàn bộ {form.quantity} accounts cùng lúc.</span>
+                  <span>📦 Combo gồm <strong>{form.quantity} accounts</strong> · Kho: <strong>{form.stock} combo</strong> · Tổng slots cần: <strong>{form.quantity * Number(form.stock || 1)}</strong></span>
                 </div>
               )}
               <div className="form-group">

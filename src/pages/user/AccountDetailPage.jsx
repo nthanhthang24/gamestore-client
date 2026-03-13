@@ -55,8 +55,11 @@ const AccountDetailPage = ({ onAddToCart }) => {
   );
 
   const images     = account.images || [];
-  const quantity   = account.quantity   != null ? account.quantity   : 1; // số accounts trong combo
-  const isSold     = account.status === 'sold';
+  const quantity   = account.quantity  != null ? account.quantity  : 1; // số accounts trong 1 combo
+  const stock      = account.stock     != null ? account.stock     : 1; // số combo trong kho
+  const soldCount  = account.soldCount != null ? account.soldCount : 0;
+  const stockLeft  = Math.max(0, stock - soldCount);
+  const isSold     = account.status === 'sold' || stockLeft <= 0;
 
   const salePrice  = activeFlashSale ? getSalePrice(account.price, account.gameType) : null;
   const unitPrice  = (activeFlashSale && salePrice && salePrice < account.price) ? salePrice : account.price;
@@ -113,7 +116,7 @@ const AccountDetailPage = ({ onAddToCart }) => {
               <span className="badge badge-accent">{account.gameType}</span>
               {account.featured && <span className="badge badge-gold"><Star size={10} /> Nổi bật</span>}
               <span className={`badge ${isSold ? 'badge-danger' : 'badge-success'}`}>
-                {isSold ? '● Đã bán' : quantity > 1 ? `● Combo ${quantity} accounts` : '● Còn hàng'}
+                {isSold ? '● Hết hàng' : stockLeft > 1 ? `● Còn ${stockLeft} combo` : '● Còn hàng'}
               </span>
             </div>
 
@@ -220,7 +223,9 @@ const AccountDetailPage = ({ onAddToCart }) => {
                 { icon: <Clock size={16} style={{ color: 'var(--gold)' }} />, text: 'Hỗ trợ 24/7' },
                 { icon: <Eye size={16} style={{ color: 'var(--accent2)' }} />, text: `${account.views || 0} lượt xem` },
                 { icon: <Package size={16} style={{ color: isSold ? 'var(--danger)' : 'var(--success)' }} />,
-                  text: quantity > 1 ? `Combo ${quantity} accounts` : '1 account' },
+                  text: quantity > 1
+                    ? `Combo ${quantity} accounts · Còn ${stockLeft}/${stock} kho`
+                    : `Còn ${stockLeft}/${stock} kho` },
               ].map((g, i) => (
                 <div key={i} className="guarantee-item">{g.icon}<span>{g.text}</span></div>
               ))}
