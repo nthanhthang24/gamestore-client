@@ -27,8 +27,16 @@ const NotificationsPage = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!currentUser) return;
-    // Lấy thông báo cho tất cả mọi người + thông báo riêng cho user này
+    // BUG FIX: clear stale data immediately when user changes or logs out
+    setNotifications([]);
+    setLoading(true);
+
+    if (!currentUser) { setLoading(false); return; }
+
+    // Capture uid/email at subscription time to avoid stale closure
+    const uid = currentUser.uid;
+    const email = currentUser.email;
+
     const unsub = onSnapshot(
       query(
         collection(db, 'notifications'),
@@ -40,15 +48,15 @@ const NotificationsPage = () => {
         // Filter: targetAll=true OR targetUserId === uid/email
         const mine = all.filter(n =>
           n.targetAll ||
-          n.targetUserId === currentUser.uid ||
-          n.targetUserId === currentUser.email
+          n.targetUserId === uid ||
+          n.targetUserId === email
         );
         setNotifications(mine);
         setLoading(false);
       },
       () => setLoading(false)
     );
-    return unsub;
+    return () => { unsub(); setNotifications([]); };
   }, [currentUser?.uid]);
 
   const isRead = (n) => (n.read || []).includes(currentUser?.uid);

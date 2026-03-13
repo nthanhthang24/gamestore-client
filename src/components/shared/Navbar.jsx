@@ -45,14 +45,20 @@ const Navbar = ({ cartCount = 0 }) => {
 
   // Realtime: count open tickets for current user
   useEffect(() => {
+    // BUG FIX: reset immediately so previous user's ticket count doesn't linger
+    setOpenTickets(0);
     if (!currentUser) return;
     const q = query(collection(db,'tickets'), where('userId','==',currentUser.uid), where('status','==','open'));
     const unsub = onSnapshot(q, snap => setOpenTickets(snap.size), ()=>{});
-    return unsub;
+    return () => { unsub(); setOpenTickets(0); };
   }, [currentUser?.uid]);
 
   // Realtime: system notifications for this user
   useEffect(() => {
+    // BUG FIX: clear stale notifications immediately when user changes or logs out
+    // Without this, previous user's notifications stay visible until new listener fires
+    setSysNotifications([]);
+
     if (!currentUser) return;
     const q = query(
       collection(db, 'notifications'),
@@ -60,15 +66,22 @@ const Navbar = ({ cartCount = 0 }) => {
       orderBy('createdAt', 'desc')
     );
     const unsub = onSnapshot(q, snap => {
+      // Capture uid at subscription time — guard against stale closure
+      const uid = currentUser.uid;
+      const email = currentUser.email;
       const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       const mine = all.filter(n =>
         n.targetAll ||
-        n.targetUserId === currentUser.uid ||
-        n.targetUserId === currentUser.email
+        n.targetUserId === uid ||
+        n.targetUserId === email
       ).slice(0, 10);
       setSysNotifications(mine);
     }, () => {});
-    return unsub;
+    return () => {
+      unsub();
+      // Clear on cleanup so switching users never shows stale data
+      setSysNotifications([]);
+    };
   }, [currentUser?.uid]);
 
   const isRead = (n) => (n.read || []).includes(currentUser?.uid);
