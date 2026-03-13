@@ -19,7 +19,11 @@ service cloud.firestore {
       allow read: if true;
       allow create, delete: if isAdmin();
       allow update: if isAdmin()
-        // Server dùng user token để update soldCount sau khi mua
+        // Server bot dùng serverToken để update soldCount/status (atomic transaction)
+        || (isAdminOrServer() &&
+            request.resource.data.diff(resource.data)
+              .affectedKeys().hasOnly(['soldCount', 'status']))
+        // User thường update soldCount/status (fallback nếu không có server bot)
         || (isAuthenticated() &&
             request.resource.data.diff(resource.data)
               .affectedKeys().hasOnly(['soldCount', 'status']))
