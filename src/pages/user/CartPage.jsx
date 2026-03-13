@@ -34,18 +34,6 @@ const checkFlashSaleActive = async () => {
   } catch { return true; } // lỗi → giữ nguyên, an toàn hơn
 };
 
-// ─── Group cart items thành [{id, ...item, qty, cartKeys[]}] ──────────────────
-const groupCart = (cart) => {
-  const map = new Map();
-  cart.forEach(item => {
-    if (!map.has(item.id)) map.set(item.id, { ...item, qty: 0, cartKeys: [] });
-    const g = map.get(item.id);
-    g.qty++;
-    g.cartKeys.push(item.cartKey || item.id);
-  });
-  return [...map.values()];
-};
-
 const CartPage = ({ cart, setCart }) => {
   const { currentUser, userProfile, fetchUserProfile } = useAuth();
   const navigate = useNavigate();
@@ -59,9 +47,7 @@ const CartPage = ({ cart, setCart }) => {
   const { voucher, voucherError, voucherLoading, applyVoucher, calculateDiscount, getVoucherUpdatePayload, clearVoucher } = useVoucher();
   const { getBulkDiscount } = useBulkDiscount();
 
-  // Memoize để tránh recompute mỗi render
   const hasSaleItems = useMemo(() => cart.some(i => i.salePrice && i.salePrice < i.price), [cart]);
-  const grouped      = useMemo(() => groupCart(cart), [cart]);
 
   // ── FIX 1: Flash sale real-time monitor — poll khi tab đang mở ──────────────
   // Dùng `hasSaleItems` thay vì inline expression trong deps
@@ -115,28 +101,9 @@ const CartPage = ({ cart, setCart }) => {
     return () => { cancelled = true; clearInterval(interval); };
   }, [voucher?.id]);
 
-  // ── Qty controls ─────────────────────────────────────────────────────────────
-  const increaseQty = useCallback((accountId) => {
-    const item = cart.find(i => i.id === accountId);
-    if (!item) return;
-    const currentQty = cart.filter(i => i.id === accountId).length;
-    const maxStock = (item.quantity || 1) - (item.soldCount || 0);
-    if (currentQty >= maxStock) {
-      toast.error(`Chỉ còn ${maxStock} nick khả dụng.`, TS); return;
-    }
-    setCart(prev => [...prev, { ...item, cartKey: accountId + '_add_' + Date.now(), buyQty: undefined }]);
-  }, [cart]);
-
-  const decreaseQty = useCallback((accountId) => {
-    setCart(prev => {
-      const lastIdx = [...prev].map((i, idx) => ({ i, idx })).filter(({ i }) => i.id === accountId).pop()?.idx;
-      if (lastIdx === undefined) return prev;
-      return prev.filter((_, i) => i !== lastIdx);
-    });
-  }, []);
-
-  const removeGroup = useCallback((accountId) => {
-    setCart(prev => prev.filter(i => i.id !== accountId));
+  // ── Remove item ──────────────────────────────────────────────────────────────
+  const removeItem = useCallback((itemId) => {
+    setCart(prev => prev.filter(i => i.id !== itemId));
   }, []);
 
   // ── Totals ────────────────────────────────────────────────────────────────────
@@ -174,7 +141,7 @@ const CartPage = ({ cart, setCart }) => {
       const snapByDocId  = {};
       uniqueIds.forEach((id, idx) => { snapByDocId[id] = accountSnaps[idx]; });
 
-      // Pre-validate
+      // Pre-validate: mỗi item là 1 combo, chỉ cần check status === 'available'
       for (const id of uniqueIds) {
         const snap = snapByDocId[id];
         const cartItem = cart.find(x => x.id === id);
@@ -182,14 +149,9 @@ const CartPage = ({ cart, setCart }) => {
           toast.error(`Tài khoản "${cartItem?.title}" không còn tồn tại.`, TS); return;
         }
         const d = snap.data();
-        const wantUnits = cart.filter(x => x.id === id).length;
-        const stockLeft = (d.quantity || 1) - (d.soldCount || 0);
-        if (d.status !== 'available' || stockLeft <= 0) {
-          toast.error(`Tài khoản "${cartItem?.title}" đã hết hàng.`, TS);
+        if (d.status !== 'available') {
+          toast.error(`Tài khoản "${cartItem?.title}" đã được bán.`, TS);
           setCart(prev => prev.filter(x => x.id !== id)); return;
-        }
-        if (wantUnits > stockLeft) {
-          toast.error(`"${cartItem?.title}": chỉ còn ${stockLeft} nick, bạn đang chọn ${wantUnits}.`, TS); return;
         }
       }
 
@@ -236,7 +198,6 @@ const CartPage = ({ cart, setCart }) => {
       }
 
       const verifiedTotal = Math.round(Math.max(0, verifiedSubtotal - verifiedBulkDiscount - verifiedVoucherDiscount));
-      const txVerifiedSoldCount = {};
 
       // ══════════════════════════════════════════════
       // ATOMIC TRANSACTION — ALL READS BEFORE ALL WRITES
@@ -263,12 +224,8 @@ const CartPage = ({ cart, setCart }) => {
           const cartItem = cart.find(x => x.id === id);
           if (!snap.exists()) throw new Error(`Tài khoản "${cartItem?.title}" không tồn tại.`);
           const sd = snap.data();
-          const sc = sd.soldCount || 0;
-          const qt = sd.quantity  || 1;
-          const wantUnits = cart.filter(x => x.id === id).length;
-          if (sd.status !== 'available' || sc + wantUnits > qt)
-            throw new Error(`Tài khoản "${cartItem?.title}" vừa hết hàng.`);
-          txVerifiedSoldCount[id] = sc;
+          if (sd.status !== 'available')
+            throw new Error(`Tài khoản "${cartItem?.title}" vừa được bán.`);
         }
 
         if (vSnap !== null) {
@@ -291,27 +248,16 @@ const CartPage = ({ cart, setCart }) => {
         if (vSnap !== null) transaction.update(voucherRef, getVoucherUpdatePayload(currentUser.email));
       });
 
-      // ── Build order items WITHOUT credentials ─────────────────────────────
-      // FIX: Không đọc credentials subcollection từ client nữa.
-      // Credentials sẽ được server inject vào order record khi /checkout/confirm được gọi.
-      // → Rule credentials subcollection có thể là isAdmin() only — an toàn tuyệt đối.
-      // → Không có bất kỳ user login nào đọc được credentials của account chưa mua.
-      const unitOffsetByDoc = {};
-      uniqueIds.forEach(id => { unitOffsetByDoc[id] = 0; });
+      // ── Build order items (không có credentials — server inject sau) ────────
+      // Mỗi item là 1 combo, server sẽ inject tất cả slots khi /checkout/confirm được gọi
       const verifiedItems = cart.map((cartItem) => {
-        const dbData = snapByDocId[cartItem.id].data();
         const { finalPrice, dbPrice } = verifiedPriceByCartKey[cartItem.cartKey || cartItem.id];
-        const baseSoldCount = txVerifiedSoldCount[cartItem.id] ?? (dbData.soldCount || 0);
-        const offset = unitOffsetByDoc[cartItem.id];
-        const slotIndex = baseSoldCount + offset;
-        unitOffsetByDoc[cartItem.id]++;
-        // Credentials KHÔNG đọc ở đây — server /checkout/confirm sẽ inject sau
         return {
           ...cartItem, verifiedPrice: finalPrice, dbPrice,
-          // credentials placeholder — server sẽ update order với credentials thực
           loginUsername: '', loginPassword: '',
           loginEmail:    '', loginNote:     '',
           attachmentContent: null, attachmentUrl: null, attachmentName: null,
+          credentials: [], // server sẽ inject tất cả slots
         };
       });
 
@@ -445,64 +391,38 @@ const CartPage = ({ cart, setCart }) => {
                 </div>
               )}
 
-              {/* Grouped cart rows */}
-              {grouped.map(group => {
-                const hasSale  = group.salePrice && group.salePrice < group.price;
-                const unitPrice = hasSale ? group.salePrice : group.price;
-                const groupTotal = unitPrice * group.qty;
-                const maxStock = (group.quantity || 1) - (group.soldCount || 0);
-                const canIncrease = group.qty < maxStock;
-
+              {/* Cart items — mỗi item là 1 combo */}
+              {cart.map(item => {
+                const hasSale = item.salePrice && item.salePrice < item.price;
+                const finalPrice = hasSale ? item.salePrice : item.price;
                 return (
-                  <div key={group.id} className="cart-item card">
+                  <div key={item.cartKey || item.id} className="cart-item card">
                     {/* Thumbnail */}
                     <div className="cart-item-img">
-                      {group.images?.[0]
-                        ? <img src={group.images[0]} alt="" />
+                      {item.images?.[0]
+                        ? <img src={item.images[0]} alt="" />
                         : <Package size={22} style={{ color: 'var(--text-muted)' }} />}
                     </div>
 
                     {/* Info */}
                     <div className="cart-item-info">
-                      <div className="cart-item-title">{group.title}</div>
+                      <div className="cart-item-title">{item.title}</div>
                       <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginTop:4, alignItems:'center' }}>
-                        <span className="badge badge-accent">{group.gameType}</span>
-                        {group.rank && (
-                          <span style={{ fontSize:11, color:'var(--gold)', fontWeight:600 }}>◆ {group.rank}</span>
+                        <span className="badge badge-accent">{item.gameType}</span>
+                        {item.rank && (
+                          <span style={{ fontSize:11, color:'var(--gold)', fontWeight:600 }}>◆ {item.rank}</span>
                         )}
                         {hasSale && (
                           <span className="flash-badge-small">
                             <Flame size={8} /> FLASH SALE
                           </span>
                         )}
+                        {(item.quantity || 1) > 1 && (
+                          <span style={{ fontSize:11, color:'var(--accent)', fontWeight:600 }}>
+                            <Package size={10} /> Combo {item.quantity} accounts
+                          </span>
+                        )}
                       </div>
-                      {group.qty > 1 && (
-                        <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:3 }}>
-                          {unitPrice.toLocaleString('vi-VN')}đ / nick
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Qty stepper */}
-                    <div className="qty-stepper">
-                      <button
-                        className="qty-btn qty-btn-minus"
-                        onClick={() => decreaseQty(group.id)}
-                        disabled={group.qty <= 1}
-                        aria-label="Giảm"
-                      >
-                        <span>−</span>
-                      </button>
-                      <span className="qty-display">{group.qty}</span>
-                      <button
-                        className={`qty-btn qty-btn-plus${!canIncrease ? ' qty-btn-maxed' : ''}`}
-                        onClick={() => increaseQty(group.id)}
-                        disabled={!canIncrease}
-                        aria-label="Tăng"
-                        title={!canIncrease ? `Còn tối đa ${maxStock} nick` : ''}
-                      >
-                        <span>+</span>
-                      </button>
                     </div>
 
                     {/* Price */}
@@ -510,21 +430,21 @@ const CartPage = ({ cart, setCart }) => {
                       {hasSale ? (
                         <div style={{ textAlign:'right' }}>
                           <div style={{ textDecoration:'line-through', color:'var(--text-muted)', fontSize:11, lineHeight:1.2 }}>
-                            {(group.price * group.qty).toLocaleString('vi-VN')}đ
+                            {item.price.toLocaleString('vi-VN')}đ
                           </div>
                           <div style={{ color:'#ff6b6b', fontWeight:700 }}>
-                            {groupTotal.toLocaleString('vi-VN')}đ
+                            {finalPrice.toLocaleString('vi-VN')}đ
                           </div>
                         </div>
                       ) : (
-                        <span>{groupTotal.toLocaleString('vi-VN')}đ</span>
+                        <span>{finalPrice.toLocaleString('vi-VN')}đ</span>
                       )}
                     </div>
 
                     {/* Remove */}
                     <button
                       className="cart-remove-btn"
-                      onClick={() => removeGroup(group.id)}
+                      onClick={() => removeItem(item.id)}
                       title="Xóa khỏi giỏ"
                     >
                       <Trash2 size={15} />
@@ -595,27 +515,24 @@ const CartPage = ({ cart, setCart }) => {
               <div className="card">
                 <h2 className="summary-title">Tóm tắt đơn hàng</h2>
                 <div className="summary-lines">
-                  {grouped.slice(0, 5).map(g => {
-                    const up = (g.salePrice && g.salePrice < g.price) ? g.salePrice : g.price;
+                  {cart.slice(0, 5).map(item => {
+                    const up = (item.salePrice && item.salePrice < item.price) ? item.salePrice : item.price;
                     return (
-                      <div key={g.id} className="summary-line">
-                        <span className="summary-line-name">
-                          {g.title}
-                          {g.qty > 1 && <span style={{ color:'var(--text-muted)', marginLeft:4 }}>×{g.qty}</span>}
-                        </span>
-                        <span className="summary-line-price">{(up * g.qty).toLocaleString('vi-VN')}đ</span>
+                      <div key={item.cartKey || item.id} className="summary-line">
+                        <span className="summary-line-name">{item.title}</span>
+                        <span className="summary-line-price">{up.toLocaleString('vi-VN')}đ</span>
                       </div>
                     );
                   })}
-                  {grouped.length > 5 && (
+                  {cart.length > 5 && (
                     <div className="summary-line" style={{ color:'var(--text-muted)', fontSize:12, fontStyle:'italic' }}>
-                      <span>... và {grouped.length - 5} loại khác</span>
+                      <span>... và {cart.length - 5} item khác</span>
                     </div>
                   )}
                 </div>
                 <hr className="divider" />
                 <div className="summary-line" style={{ color:'var(--text-secondary)' }}>
-                  <span>Tạm tính ({totalItems} nick)</span>
+                  <span>Tạm tính ({totalItems} sản phẩm)</span>
                   <span>{subtotal.toLocaleString('vi-VN')}đ</span>
                 </div>
                 {bulkDiscountAmt > 0 && (
