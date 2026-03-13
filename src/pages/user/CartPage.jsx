@@ -18,6 +18,18 @@ import './CartPage.css';
 
 const TS = { style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' } };
 
+// ─── Group cart entries by account id ───────────────────────────────────────
+const groupCart = (cart) => {
+  const map = new Map();
+  cart.forEach(item => {
+    if (!map.has(item.id)) map.set(item.id, { ...item, qty: 0, cartKeys: [] });
+    const g = map.get(item.id);
+    g.qty++;
+    g.cartKeys.push(item.cartKey || item.id);
+  });
+  return [...map.values()];
+};
+
 // ─── Check flash sale còn active không ────────────────────────────────────────
 const checkFlashSaleActive = async () => {
   try {
@@ -48,6 +60,7 @@ const CartPage = ({ cart, setCart }) => {
   const { getBulkDiscount } = useBulkDiscount();
 
   const hasSaleItems = useMemo(() => cart.some(i => i.salePrice && i.salePrice < i.price), [cart]);
+  const grouped      = useMemo(() => groupCart(cart), [cart]);
 
   // ── FIX 1: Flash sale real-time monitor — poll khi tab đang mở ──────────────
   // Dùng `hasSaleItems` thay vì inline expression trong deps
@@ -101,9 +114,31 @@ const CartPage = ({ cart, setCart }) => {
     return () => { cancelled = true; clearInterval(interval); };
   }, [voucher?.id]);
 
-  // ── Remove item ──────────────────────────────────────────────────────────────
-  const removeItem = useCallback((itemId) => {
-    setCart(prev => prev.filter(i => i.id !== itemId));
+  // ── Qty controls — mỗi unit là 1 combo ──────────────────────────────────────
+  const increaseQty = useCallback((accountId, account) => {
+    const inCart    = cart.filter(i => i.id === accountId).length;
+    const stockLeft = (account.stock || 1) - (account.soldCount || 0);
+    if (inCart >= stockLeft) {
+      toast.error(`Chỉ còn ${stockLeft} combo trong kho.`, TS); return;
+    }
+    setCart(prev => [...prev, {
+      ...account,
+      cartKey: accountId + '_add_' + Date.now(),
+      buyQty: undefined,
+    }]);
+  }, [cart]);
+
+  const decreaseQty = useCallback((accountId) => {
+    setCart(prev => {
+      const lastIdx = [...prev].map((i, idx) => ({ i, idx }))
+        .filter(({ i }) => i.id === accountId).pop()?.idx;
+      if (lastIdx === undefined) return prev;
+      return prev.filter((_, i) => i !== lastIdx);
+    });
+  }, []);
+
+  const removeGroup = useCallback((accountId) => {
+    setCart(prev => prev.filter(i => i.id !== accountId));
   }, []);
 
   // ── Totals ────────────────────────────────────────────────────────────────────
@@ -141,7 +176,7 @@ const CartPage = ({ cart, setCart }) => {
       const snapByDocId  = {};
       uniqueIds.forEach((id, idx) => { snapByDocId[id] = accountSnaps[idx]; });
 
-      // Pre-validate: check status + còn stock
+      // Pre-validate: check status + số combo trong cart <= stockLeft
       for (const id of uniqueIds) {
         const snap = snapByDocId[id];
         const cartItem = cart.find(x => x.id === id);
@@ -149,10 +184,15 @@ const CartPage = ({ cart, setCart }) => {
           toast.error(`Tài khoản "${cartItem?.title}" không còn tồn tại.`, TS); return;
         }
         const d = snap.data();
-        const stockLeft = (d.stock || 1) - (d.soldCount || 0);
+        const stockLeft  = (d.stock || 1) - (d.soldCount || 0);
+        const wantCombos = cart.filter(x => x.id === id).length;
         if (d.status !== 'available' || stockLeft <= 0) {
           toast.error(`Tài khoản "${cartItem?.title}" đã hết hàng.`, TS);
           setCart(prev => prev.filter(x => x.id !== id)); return;
+        }
+        if (wantCombos > stockLeft) {
+          toast.error(`"${cartItem?.title}": chỉ còn ${stockLeft} combo, bạn đang chọn ${wantCombos}.`, TS);
+          return;
         }
       }
 
@@ -225,9 +265,12 @@ const CartPage = ({ cart, setCart }) => {
           const cartItem = cart.find(x => x.id === id);
           if (!snap.exists()) throw new Error(`Tài khoản "${cartItem?.title}" không tồn tại.`);
           const sd = snap.data();
-          const stockLeft = (sd.stock || 1) - (sd.soldCount || 0);
+          const stockLeft  = (sd.stock || 1) - (sd.soldCount || 0);
+          const wantCombos = cart.filter(x => x.id === id).length;
           if (sd.status !== 'available' || stockLeft <= 0)
             throw new Error(`Tài khoản "${cartItem?.title}" vừa hết hàng.`);
+          if (wantCombos > stockLeft)
+            throw new Error(`"${cartItem?.title}": chỉ còn ${stockLeft} combo trong kho.`);
         }
 
         if (vSnap !== null) {
@@ -393,38 +436,63 @@ const CartPage = ({ cart, setCart }) => {
                 </div>
               )}
 
-              {/* Cart items — mỗi item là 1 combo */}
-              {cart.map(item => {
-                const hasSale = item.salePrice && item.salePrice < item.price;
-                const finalPrice = hasSale ? item.salePrice : item.price;
+              {/* Cart items — grouped by account, qty = số combo */}
+              {grouped.map(group => {
+                const hasSale   = group.salePrice && group.salePrice < group.price;
+                const unitPrice = hasSale ? group.salePrice : group.price;
+                const stockLeft = (group.stock || 1) - (group.soldCount || 0);
+                const canIncrease = group.qty < stockLeft;
                 return (
-                  <div key={item.cartKey || item.id} className="cart-item card">
+                  <div key={group.id} className="cart-item card">
                     {/* Thumbnail */}
                     <div className="cart-item-img">
-                      {item.images?.[0]
-                        ? <img src={item.images[0]} alt="" />
+                      {group.images?.[0]
+                        ? <img src={group.images[0]} alt="" />
                         : <Package size={22} style={{ color: 'var(--text-muted)' }} />}
                     </div>
 
                     {/* Info */}
                     <div className="cart-item-info">
-                      <div className="cart-item-title">{item.title}</div>
+                      <div className="cart-item-title">{group.title}</div>
                       <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginTop:4, alignItems:'center' }}>
-                        <span className="badge badge-accent">{item.gameType}</span>
-                        {item.rank && (
-                          <span style={{ fontSize:11, color:'var(--gold)', fontWeight:600 }}>◆ {item.rank}</span>
+                        <span className="badge badge-accent">{group.gameType}</span>
+                        {group.rank && (
+                          <span style={{ fontSize:11, color:'var(--gold)', fontWeight:600 }}>◆ {group.rank}</span>
                         )}
                         {hasSale && (
                           <span className="flash-badge-small">
                             <Flame size={8} /> FLASH SALE
                           </span>
                         )}
-                        {(item.quantity || 1) > 1 && (
+                        {(group.quantity || 1) > 1 && (
                           <span style={{ fontSize:11, color:'var(--accent)', fontWeight:600 }}>
-                            <Package size={10} /> Combo {item.quantity} accounts
+                            <Package size={10} /> Combo {group.quantity} accounts
                           </span>
                         )}
                       </div>
+                      {group.qty > 1 && (
+                        <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:3 }}>
+                          {unitPrice.toLocaleString('vi-VN')}đ / combo
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Qty stepper */}
+                    <div className="qty-stepper">
+                      <button
+                        className="qty-btn qty-btn-minus"
+                        onClick={() => decreaseQty(group.id)}
+                        disabled={group.qty <= 1}
+                        aria-label="Giảm"
+                      ><span>−</span></button>
+                      <span className="qty-display">{group.qty}</span>
+                      <button
+                        className={`qty-btn qty-btn-plus${!canIncrease ? ' qty-btn-maxed' : ''}`}
+                        onClick={() => increaseQty(group.id, group)}
+                        disabled={!canIncrease}
+                        aria-label="Tăng"
+                        title={!canIncrease ? `Còn tối đa ${stockLeft} combo` : ''}
+                      ><span>+</span></button>
                     </div>
 
                     {/* Price */}
@@ -432,21 +500,21 @@ const CartPage = ({ cart, setCart }) => {
                       {hasSale ? (
                         <div style={{ textAlign:'right' }}>
                           <div style={{ textDecoration:'line-through', color:'var(--text-muted)', fontSize:11, lineHeight:1.2 }}>
-                            {item.price.toLocaleString('vi-VN')}đ
+                            {(group.price * group.qty).toLocaleString('vi-VN')}đ
                           </div>
                           <div style={{ color:'#ff6b6b', fontWeight:700 }}>
-                            {finalPrice.toLocaleString('vi-VN')}đ
+                            {(unitPrice * group.qty).toLocaleString('vi-VN')}đ
                           </div>
                         </div>
                       ) : (
-                        <span>{finalPrice.toLocaleString('vi-VN')}đ</span>
+                        <span>{(unitPrice * group.qty).toLocaleString('vi-VN')}đ</span>
                       )}
                     </div>
 
                     {/* Remove */}
                     <button
                       className="cart-remove-btn"
-                      onClick={() => removeItem(item.id)}
+                      onClick={() => removeGroup(group.id)}
                       title="Xóa khỏi giỏ"
                     >
                       <Trash2 size={15} />
@@ -517,24 +585,27 @@ const CartPage = ({ cart, setCart }) => {
               <div className="card">
                 <h2 className="summary-title">Tóm tắt đơn hàng</h2>
                 <div className="summary-lines">
-                  {cart.slice(0, 5).map(item => {
-                    const up = (item.salePrice && item.salePrice < item.price) ? item.salePrice : item.price;
+                  {grouped.slice(0, 5).map(g => {
+                    const up = (g.salePrice && g.salePrice < g.price) ? g.salePrice : g.price;
                     return (
-                      <div key={item.cartKey || item.id} className="summary-line">
-                        <span className="summary-line-name">{item.title}</span>
-                        <span className="summary-line-price">{up.toLocaleString('vi-VN')}đ</span>
+                      <div key={g.id} className="summary-line">
+                        <span className="summary-line-name">
+                          {g.title}
+                          {g.qty > 1 && <span style={{ color:'var(--text-muted)', marginLeft:4 }}>×{g.qty}</span>}
+                        </span>
+                        <span className="summary-line-price">{(up * g.qty).toLocaleString('vi-VN')}đ</span>
                       </div>
                     );
                   })}
-                  {cart.length > 5 && (
+                  {grouped.length > 5 && (
                     <div className="summary-line" style={{ color:'var(--text-muted)', fontSize:12, fontStyle:'italic' }}>
-                      <span>... và {cart.length - 5} item khác</span>
+                      <span>... và {grouped.length - 5} loại khác</span>
                     </div>
                   )}
                 </div>
                 <hr className="divider" />
                 <div className="summary-line" style={{ color:'var(--text-secondary)' }}>
-                  <span>Tạm tính ({totalItems} sản phẩm)</span>
+                  <span>Tạm tính ({grouped.length} loại · {totalItems} combo)</span>
                   <span>{subtotal.toLocaleString('vi-VN')}đ</span>
                 </div>
                 {bulkDiscountAmt > 0 && (

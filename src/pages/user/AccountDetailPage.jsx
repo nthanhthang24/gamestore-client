@@ -4,7 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { doc, getDoc, updateDoc, increment } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { useAuth } from '../../context/AuthContext';
-import { ShoppingCart, Shield, Clock, Eye, Star, ChevronLeft, ChevronRight, Zap, Award, Package, Heart, Flame } from 'lucide-react';
+import { ShoppingCart, Shield, Clock, Eye, Star, ChevronLeft, ChevronRight, Zap, Award, Package, Minus, Plus, Heart, Flame } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useFlashSale } from '../../hooks/useFlashSale';
 import { useWishlist } from '../../hooks/useWishlist';
@@ -23,6 +23,7 @@ const AccountDetailPage = ({ onAddToCart }) => {
   const [loading, setLoading]   = useState(true);
   const [currentImg, setCurrentImg] = useState(0);
   const [activeTab, setActiveTab] = useState('info'); // 'info' | 'ratings'
+  const [buyQty, setBuyQty]         = useState(1);
   const [ratingCount, setRatingCount] = useState(null); // updated by RatingWidget via callback
   const { isWishlisted, toggle: toggleWishlist } = useWishlist(currentUser);
   useSEO(account ? {
@@ -63,6 +64,7 @@ const AccountDetailPage = ({ onAddToCart }) => {
 
   const salePrice  = activeFlashSale ? getSalePrice(account.price, account.gameType) : null;
   const unitPrice  = (activeFlashSale && salePrice && salePrice < account.price) ? salePrice : account.price;
+  const totalPrice = unitPrice * buyQty;
 
   const handleAddToCart = (goToCart = false) => {
     if (!currentUser) { navigate('/login'); return; }
@@ -70,8 +72,9 @@ const AccountDetailPage = ({ onAddToCart }) => {
     onAddToCart?.({
       ...account,
       salePrice: (activeFlashSale && salePrice && salePrice < account.price) ? salePrice : null,
+      buyQty,
     });
-    toast.success('Đã thêm vào giỏ!', TS);
+    toast.success(buyQty > 1 ? `Đã thêm ${buyQty} combo vào giỏ!` : 'Đã thêm vào giỏ!', TS);
     if (goToCart) navigate('/cart');
   };
 
@@ -186,6 +189,36 @@ const AccountDetailPage = ({ onAddToCart }) => {
             {/* Qty selector removed — mỗi item là 1 combo cố định */}
             
 
+            {/* Qty selector — só combo muốn mua */}
+            {!isSold && stockLeft > 1 && (
+              <div className="qty-selector">
+                <div className="qty-label">
+                  <Package size={14} />
+                  <span>Số combo</span>
+                  <span className="qty-stock">({stockLeft} có sẵn)</span>
+                </div>
+                <div className="qty-controls">
+                  <button type="button" className="qty-btn"
+                    onClick={() => setBuyQty(q => Math.max(1, q - 1))}
+                    disabled={buyQty <= 1}>
+                    <Minus size={14} />
+                  </button>
+                  <span className="qty-value">{buyQty}</span>
+                  <button type="button" className="qty-btn"
+                    onClick={() => setBuyQty(q => Math.min(stockLeft, q + 1))}
+                    disabled={buyQty >= stockLeft}>
+                    <Plus size={14} />
+                  </button>
+                </div>
+              </div>
+            )}
+            {buyQty > 1 && (
+              <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:8 }}>
+                {unitPrice.toLocaleString('vi-VN')}đ × {buyQty} combo =&nbsp;
+                <strong style={{ color:'var(--gold)' }}>{totalPrice.toLocaleString('vi-VN')}đ</strong>
+              </div>
+            )}
+
             {/* Actions */}
             <div className="detail-actions">
               <button
@@ -195,7 +228,7 @@ const AccountDetailPage = ({ onAddToCart }) => {
                 style={{ flex: 1 }}
               >
                 <Zap size={18} />
-                {isSold ? 'Đã bán' : 'Mua ngay'}
+                {isSold ? 'Hết hàng' : buyQty > 1 ? `Mua ${buyQty} combo` : 'Mua ngay'}
               </button>
               <button
                 className="btn btn-ghost btn-lg"

@@ -1574,17 +1574,17 @@ const AppContent = () => {
         ));
         let changed = false;
         let salePriceCleared = false;
-        // Validate: status available + còn stock
-        const seenIds = new Set();
+        // Validate: status available + còn stock, count per id <= stockLeft
+        const countById = {};
         const validCart = currentCart.filter(item => {
           const snap = snapMap[item.id];
           if (!snap || !snap.exists()) { changed = true; return false; }
           const d = snap.data();
           const stockLeft = (d.stock || 1) - (d.soldCount || 0);
           if (d.status !== 'available' || stockLeft <= 0) { changed = true; return false; }
-          // Bỏ duplicate (mỗi listing chỉ có 1 entry trong cart)
-          if (seenIds.has(item.id)) { changed = true; return false; }
-          seenIds.add(item.id);
+          const count = countById[item.id] || 0;
+          if (count >= stockLeft) { changed = true; return false; }
+          countById[item.id] = count + 1;
           return true;
         }).map(item => {
           // ✅ Clear stale salePrice if no active flash sale
@@ -1618,25 +1618,27 @@ const AppContent = () => {
 
   const addToCart = (account) =>
     setCartPersist(prev => {
-      // Mỗi combo là 1 item độc lập — không thể thêm cùng 1 item 2 lần
-      const alreadyInCart = prev.some(i => i.id === account.id);
-      if (alreadyInCart) {
+      // buyQty = số combo muốn thêm (default 1)
+      const wantQty    = Math.max(1, account.buyQty || 1);
+      const inCart     = prev.filter(i => i.id === account.id).length;
+      const stockLeft  = (account.stock || 1) - (account.soldCount || 0);
+      const canAdd     = Math.min(wantQty, stockLeft - inCart, maxCartItems - prev.length);
+      if (canAdd <= 0) {
         import('react-hot-toast').then(({ default: toast }) => {
-          toast.error('Sản phẩm này đã có trong giỏ hàng!');
+          if (prev.length >= maxCartItems) toast.error(`Giỏ hàng tối đa ${maxCartItems} sản phẩm!`);
+          else if (inCart >= stockLeft)    toast.error('Đã thêm tối đa số lượng còn trong kho!');
+          else                             toast.error('Không thể thêm thêm sản phẩm này!');
         });
         return prev;
       }
-      if (prev.length >= maxCartItems) {
-        import('react-hot-toast').then(({ default: toast }) => {
-          toast.error(`Giỏ hàng tối đa ${maxCartItems} sản phẩm!`);
-        });
-        return prev;
-      }
-      return [...prev, {
+      // Mỗi combo = 1 cart entry riêng (vì credentials khác nhau)
+      const ts = Date.now();
+      const newItems = Array.from({ length: canAdd }, (_, i) => ({
         ...account,
-        cartKey: account.id + '_' + Date.now(),
-        buyQty: undefined,
-      }];
+        cartKey: account.id + '_' + ts + '_' + (inCart + i),
+        buyQty:  undefined,
+      }));
+      return [...prev, ...newItems];
     });
 
   // Maintenance mode gate (allow admins through)
