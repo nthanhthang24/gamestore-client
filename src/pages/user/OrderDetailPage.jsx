@@ -78,15 +78,10 @@ const OrderDetailPage = () => {
   const retryCredentialInject = async () => {
     setRetrying(true);
     try {
-      // Check Firestore trước
-      const orderData = await reloadOrder();
-      if (orderData?._credentialsInjected) {
-        toast.success('✅ Đã nhận thông tin đăng nhập!', TS);
-        return;
-      }
+      // Luôn gọi server — idempotency check phía server xử lý duplicate
       const result = await callConfirm();
       if (result.ok) {
-        await reloadOrder();
+        // onSnapshot sẽ tự cập nhật UI — không cần reloadOrder
         toast.success('✅ Đã nhận thông tin đăng nhập!', TS);
       } else if (result.error === 'timeout') {
         toast.error('⚠️ Server đang khởi động (~30s), vui lòng thử lại.', { ...TS, duration: 7000 });
@@ -380,39 +375,27 @@ const OrderDetailPage = () => {
                       ));
                     })()}
                     {!item.loginUsername && !item.attachmentContent && !item.attachmentUrl && !(item.allCredentials?.length > 0) && (
-                      order?._credentialsInjected
-                        ? (
-                          // Đã inject nhưng slot này không có credentials — slot rỗng
-                          <div style={{background:'rgba(100,100,100,0.08)',border:'1px solid var(--border)',borderRadius:8,padding:'12px 16px'}}>
-                            <div style={{fontSize:13,color:'var(--text-muted)'}}>
-                              ⚠️ Slot này chưa có thông tin đăng nhập. Vui lòng liên hệ hỗ trợ.
-                            </div>
+                      // Chưa có credentials — hiện nút lấy lại
+                        <div style={{background:'rgba(255,165,0,0.08)',border:'1px solid rgba(255,165,0,0.35)',borderRadius:8,padding:'12px 16px'}}>
+                          <div style={{display:'flex',alignItems:'center',gap:8,color:'var(--gold)',fontWeight:700,fontSize:13,marginBottom:6}}>
+                            <Clock size={14}/>
+                            {retrying ? 'Đang lấy thông tin...' : 'Chưa có thông tin đăng nhập'}
                           </div>
-                        ) : (
-                          // Chưa inject — đang chờ server
-                          <div style={{background:'rgba(255,165,0,0.08)',border:'1px solid rgba(255,165,0,0.35)',borderRadius:8,padding:'12px 16px'}}>
-                            <div style={{display:'flex',alignItems:'center',gap:8,color:'var(--gold)',fontWeight:700,fontSize:13,marginBottom:6}}>
-                              <Clock size={14}/>
-                              {retrying ? 'Đang lấy thông tin...' : 'Đang chờ thông tin đăng nhập...'}
-                            </div>
-                            <div style={{fontSize:12,color:'var(--text-secondary)',lineHeight:1.6,marginBottom:10}}>
-                              {retrying
-                                ? 'Server đang xử lý, vui lòng chờ.'
-                                : 'Server đang xử lý. Thường mất 5–30 giây. Nếu chờ lâu hơn, bấm "Thử lấy lại".'}
-                            </div>
-                            <button
-                              onClick={retryCredentialInject}
-                              disabled={retrying}
-                              style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:12,fontWeight:600,
-                                padding:'6px 14px',borderRadius:6,border:'1px solid rgba(255,165,0,0.5)',
-                                background:'rgba(255,165,0,0.12)',color:'var(--gold)',cursor:retrying?'not-allowed':'pointer'}}
-                            >
-                              {retrying
-                                ? <><span className="spinner" style={{width:12,height:12,borderWidth:2}}/> Đang lấy...</>
-                                : '🔄 Thử lấy lại thông tin'}
-                            </button>
+                          <div style={{fontSize:12,color:'var(--text-secondary)',lineHeight:1.6,marginBottom:10}}>
+                            {retrying ? 'Server đang xử lý, vui lòng chờ.' : 'Bấm nút bên dưới để lấy thông tin từ server.'}
                           </div>
-                        )
+                          <button
+                            onClick={retryCredentialInject}
+                            disabled={retrying}
+                            style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:12,fontWeight:600,
+                              padding:'6px 14px',borderRadius:6,border:'1px solid rgba(255,165,0,0.5)',
+                              background:'rgba(255,165,0,0.12)',color:'var(--gold)',cursor:retrying?'not-allowed':'pointer'}}
+                          >
+                            {retrying
+                              ? <><span className="spinner" style={{width:12,height:12,borderWidth:2}}/> Đang lấy...</>
+                              : '🔄 Lấy thông tin đăng nhập'}
+                          </button>
+                        </div>
                     )}
                   </div>
                 )}
