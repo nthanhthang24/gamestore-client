@@ -41,6 +41,8 @@ const AdminAccounts = () => {
   const handleDelete = async (id) => {
     if (!(await confirm('Xóa tài khoản này? Không thể khôi phục.'))) return;
     try {
+      // Xóa credentials subcollection trước, rồi mới xóa main doc
+      try { await deleteDoc(doc(db, 'accounts', id, 'credentials', 'slots')); } catch (_) {}
       await deleteDoc(doc(db, 'accounts', id));
       setAccounts(prev => prev.filter(a => a.id !== id));
       toast.success('Đã xóa!', { style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' } });
@@ -95,7 +97,10 @@ const AdminAccounts = () => {
     if (!(await confirm(`Xoá ${selected.size} tài khoản đã chọn? Không thể khôi phục.`))) return;
     setBulkDeleting(true);
     try {
-      await Promise.all([...selected].map(id => deleteDoc(doc(db, 'accounts', id))));
+      await Promise.all([...selected].flatMap(id => [
+        deleteDoc(doc(db, 'accounts', id, 'credentials', 'slots')).catch(() => {}),
+        deleteDoc(doc(db, 'accounts', id)),
+      ]));
       setAccounts(prev => prev.filter(a => !selected.has(a.id)));
       setSelected(new Set());
       toast.success(`Đã xoá ${selected.size} tài khoản`, { style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' } });
@@ -208,12 +213,7 @@ const AdminAccounts = () => {
                     </td>
                     <td style={{ color: 'var(--text-primary)', fontWeight: 500, maxWidth: '200px' }}>
                       <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{acc.title}</div>
-                      {/* Cảnh báo thiếu credentials */}
-                      {acc.status === 'available' && !acc.loginUsername && !(acc.credentials?.length > 0 && acc.credentials[0]?.loginUsername) && !acc.attachmentContent && (
-                        <div style={{ fontSize: 10, color: 'var(--danger)', fontWeight: 700, marginTop: 2 }}>
-                          ⚠️ Thiếu thông tin đăng nhập
-                        </div>
-                      )}
+                      {/* Credentials stored in subcollection — không thể check từ list view */}
                     </td>
                     <td><span className="badge badge-accent">{acc.gameType}</span></td>
                     <td>{acc.rank || '-'}</td>

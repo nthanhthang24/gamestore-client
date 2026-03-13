@@ -228,7 +228,7 @@ const AdminAccountForm = () => {
     setForm(p => ({ ...p, quantity: next.length }));
   };
   const duplicateSlot = (idx) => {
-    const dup = { ...credentials[idx], _expanded: true, attachmentContent: null, attachmentName: null, pendingFile: null };
+    const dup = { ...credentials[idx], _expanded: true, pendingFile: null }; // giữ attachmentContent nếu có
     const next = [...credentials.slice(0, idx+1), dup, ...credentials.slice(idx+1)];
     setCredentials(next);
     setForm(p => ({ ...p, quantity: next.length }));
