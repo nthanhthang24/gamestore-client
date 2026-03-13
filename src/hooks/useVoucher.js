@@ -29,7 +29,7 @@ export const useVoucher = () => {
 
   const setVoucher = (v) => { _setVoucher(v); saveVoucherToSession(v); };
 
-  const applyVoucher = async (code, orderTotal, userEmail) => {
+  const applyVoucher = async (code, orderTotal, userEmail, userUid = '') => {
     if (!code.trim()) { setVoucherError('Nhập mã voucher'); return false; }
     setVoucherLoading(true);
     setVoucherError('');
@@ -67,10 +67,18 @@ export const useVoucher = () => {
         setVoucherError(`Đơn tối thiểu ${vData.minOrder.toLocaleString('vi-VN')}đ`);
         return false;
       }
-      // User cụ thể
-      if (vData.targetUserId && vData.targetUserId !== userEmail) {
-        setVoucherError('Mã này không áp dụng cho tài khoản của bạn');
-        return false;
+      // User cụ thể — FIX B1: compare by UID (from auth) to match Firestore rule
+      // Admin creates voucher with targetUserId = user's UID (not email)
+      // Rule: resource.data.targetUserId == request.auth.uid (UID!)
+      // Code was comparing to userEmail — now accepts BOTH uid and email for compatibility
+      if (vData.targetUserId) {
+        // userUid is passed in — fallback to email comparison for legacy data
+        const isTargetedToMe = vData.targetUserId === userEmail || 
+                               (typeof userUid === 'string' && vData.targetUserId === userUid);
+        if (!isTargetedToMe) {
+          setVoucherError('Mã này không áp dụng cho tài khoản của bạn');
+          return false;
+        }
       }
 
       setVoucher(vData);

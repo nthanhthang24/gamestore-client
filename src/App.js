@@ -463,9 +463,13 @@ const AdminSettingsPage = () => {
       const { db } = await import('./firebase/config');
       await setDoc(doc(db, 'settings', 'global'), settings, { merge: true });
       // FIX T-04: audit log mỗi khi admin đổi settings (bao gồm theme)
+      // FIX E1: auditLog requires userId field to pass Firestore rule
       try {
+        const { getAuth: _ga } = await import('firebase/auth');
+        const _uid = _ga().currentUser?.uid || '';
         await addDoc(collection(db, 'auditLogs'), {
           action:    'settings_updated',
+          userId:    _uid,                              // FIX E1: required by rule
           data:      JSON.stringify(settings).slice(0, 500), // cap 500 chars
           createdAt: serverTimestamp(),
         });

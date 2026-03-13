@@ -151,7 +151,7 @@ const CartPage = ({ cart, setCart }) => {
 
   const handleApplyVoucher = async () => {
     if (!currentUser) { navigate('/login'); return; }
-    await applyVoucher(voucherCode.trim(), subtotal, currentUser.email);
+    await applyVoucher(voucherCode.trim(), subtotal, currentUser.email, currentUser.uid); // FIX B1: pass uid
   };
 
   // ── Checkout ─────────────────────────────────────────────────────────────────
