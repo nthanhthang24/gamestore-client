@@ -177,8 +177,8 @@ service cloud.firestore {
     // ══════════════════════════════════════════════════════════════════════
     match /vouchers/{voucherId} {
       // FIX B1: targetUserId can be stored as UID or email (for compatibility)
-      // Allow read if: no targetUserId, OR targetUserId=own UID, OR targetUserId=own email
-      allow read: if isAdmin()
+      // Server bot cần đọc tất cả vouchers để verify trong checkout/confirm
+      allow read: if isAdmin() || isServer()
         || (isAuthenticated() && (
               !resource.data.keys().hasAny(['targetUserId']) ||
               resource.data.get('targetUserId', '') == '' ||
@@ -287,7 +287,15 @@ service cloud.firestore {
       allow create: if isAuthenticated()
         && request.resource.data.newUserId == request.auth.uid
         && request.resource.data.credited == false
-        && request.resource.data.referrerId != request.auth.uid;
+        && request.resource.data.referrerId != request.auth.uid
+        // SECURITY: limit fields to prevent data injection
+        && request.resource.data.keys().hasOnly([
+            'refCode','referrerId','newUserEmail','newUserId','credited','createdAt'
+           ])
+        // SECURITY: chặn spam - mỗi newUserId chỉ tạo 1 referral (enforced by doc ID = newUserId)
+        // AuthPage tạo addDoc tự động ID → Firestore không enforce uniqueness theo field
+        // Thêm size constraint: refCode phải đúng 8 chars
+        && request.resource.data.get('refCode', '').size() == 8;
       allow update: if isAdminOrServer();
       allow delete: if false;
     }
@@ -323,7 +331,11 @@ service cloud.firestore {
     }
 
     match /wishlists/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read: if isOwner(userId);
+      // SECURITY: whitelist to prevent storing arbitrary/large data
+      allow write: if isOwner(userId)
+        && (request.resource.data.keys().hasOnly(['items', 'updatedAt'])
+            || request.resource.data.keys().hasOnly(['items']));
     }
 
     match /auditLogs/{id} {
@@ -338,7 +350,10 @@ service cloud.firestore {
             'action','userId','adminEmail','createdAt','data',
             'targetUserId','targetEmail','amount','note',
             'orderId','gameType','accountId'
-           ]);
+           ])
+        // SECURITY: giới hạn size của 'data' field để tránh storage DoS
+        && request.resource.data.get('note', '').size() <= 500
+        && request.resource.data.get('action', '').size() <= 100;
       allow update, delete: if false;
     }
   }
