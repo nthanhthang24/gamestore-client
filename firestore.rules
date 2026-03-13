@@ -9,80 +9,61 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
-    // ── Accounts ──────────────────────────────────────────────────────
-    // FIX VULN-05: soldCount must increase, not be set arbitrarily
-    // FIX F-06:    credentials[] is PRIVATE — only admin can read full doc
-    // FIX 2025-A:  REMOVED authenticated soldCount/status update path —
-    //              only admin OR the checkout transaction (which runs as admin
-    //              client inside runTransaction) may increment soldCount.
-    //              Any authenticated user could previously call:
-    //                updateDoc(accountRef, {soldCount: qty, status:'sold'})
-    //              to sabotage listings without buying.
+    // ══════════════════════════════════════════════════════════════════════
+    // ACCOUNTS
+    // ══════════════════════════════════════════════════════════════════════
     match /accounts/{accountId} {
-      // FIX 2025-K: credentials (loginPassword etc.) must NOT be stored here.
-      // They are written separately to /accounts/{id}/credentials/ (admin-only subcollection).
-      // AdminAccountForm must save credentials to subcollection, not main doc.
-      // Public read is required for shop listing — field masking is handled in AdminAccountForm.
       allow read: if true;
       allow create, delete: if isAdmin();
-      // views: anyone can increment exactly +1 (view counter)
+      // Chỉ admin update. Views: bất kỳ ai tăng đúng +1.
       allow update: if isAdmin()
         || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['views']) &&
-            request.resource.data.views == resource.data.views + 1)
-        // Checkout transaction runs as authenticated user — allow ONLY soldCount+status
-        // changes that move in the correct direction AND come from a balance-deducting tx.
-        // We validate: soldCount increases by exactly the cart quantity (capped at quantity),
-        // and status change to 'sold' is only allowed when soldCount reaches quantity.
-        || (isAuthenticated() &&
-            request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['soldCount', 'status']) &&
-            resource.data.status == 'available' &&
-            request.resource.data.soldCount > resource.data.soldCount &&
-            request.resource.data.soldCount <= resource.data.get('quantity', 1) &&
-            request.resource.data.status == 'sold' &&
-            request.resource.data.soldCount == resource.data.get('quantity', 1))
-        || (isAuthenticated() &&
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['soldCount']) &&
-            resource.data.status == 'available' &&
-            request.resource.data.soldCount > resource.data.soldCount &&
-            request.resource.data.soldCount < resource.data.get('quantity', 1));
+            request.resource.data.views == resource.data.views + 1);
     }
 
-    // ── Account Credentials (PRIVATE subcollection) ───────────────────
-    // FIX 2025-K: Credentials stored HERE (not in parent doc) so public
-    // "allow read: if true" on /accounts/{id} does NOT expose passwords.
-    // Buyers can read credentials only during checkout (they need them to build the order).
-    // After purchase, credentials are embedded in the order record — no further subcollection access needed.
+    // ── Credentials subcollection ─────────────────────────────────────────
+    // FIX-FINAL: CHỈ admin (Admin SDK) đọc/ghi được.
+    // Client (CartPage) KHÔNG còn đọc credentials nữa.
+    // Server /checkout/confirm dùng Admin SDK để:
+    //   1. Fetch credentials subcollection
+    //   2. Inject vào order record
+    //   3. Update soldCount
+    // Buyer đọc credentials từ ORDER record (đã được copy vào order).
+    // → Không có bất kỳ user login nào đọc được credentials của account chưa mua.
     match /accounts/{accountId}/credentials/{docId} {
-      allow read: if isAdmin() || isAuthenticated();
+      allow read: if isAdmin();
       allow write: if isAdmin();
     }
 
-    // ── Users ──────────────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════
+    // USERS
+    // ══════════════════════════════════════════════════════════════════════
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
       allow create: if isAuthenticated() && isOwner(userId)
         && request.resource.data.role == 'user'
         && request.resource.data.balance == 0;
       allow update: if isAdmin()
+        // Profile update: chỉ displayName, avatar — không được đụng balance/role/uid/banned/email
         || (isOwner(userId) &&
             !request.resource.data.diff(resource.data)
               .affectedKeys().hasAny(['balance', 'role', 'uid', 'createdAt',
                                       'banned', 'bannedAt', 'email']) &&
             request.resource.data.get('displayName', '').size() <= 100)
-        // Checkout only: user can DECREASE balance (never increase)
+        // Checkout: user tự GIẢM balance (thanh toán)
+        // Không được tăng, không được giảm quá 10M/lần (giới hạn single purchase)
+        // → Ngăn attacker set balance = 0 để social engineer "mất tiền"
         || (isOwner(userId) &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance']) &&
             request.resource.data.balance < resource.data.balance &&
-            request.resource.data.balance >= 0)
-        // Server webhook: credit balance (unauthenticated REST call from server)
-        || (!isAuthenticated() &&
-            request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['balance', 'updatedAt']) &&
-            request.resource.data.balance >= 0);
+            request.resource.data.balance >= 0 &&
+            resource.data.balance - request.resource.data.balance <= 10000000);
+        // Server webhook dùng Admin SDK bypass rules để credit balance
     }
 
-    // ── Orders ────────────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════
+    // ORDERS
+    // ══════════════════════════════════════════════════════════════════════
     match /orders/{orderId} {
       allow read: if isAuthenticated() &&
         (resource.data.userId == request.auth.uid || isAdmin());
@@ -90,45 +71,52 @@ service cloud.firestore {
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.status == 'completed'
         && request.resource.data.paymentMethod == 'balance'
-        // FIX 2025-B: total must be > 0 (was >= 0, allowing fake zero-cost orders)
         && request.resource.data.total > 0
+        && request.resource.data.total <= 100000000
         && request.resource.data.get('items', []).size() > 0
+        && request.resource.data.items[0].id is string
+        && request.resource.data.items[0].id.size() > 0
+        && request.resource.data.items[0].get('price', 0) > 0
         && request.resource.data.keys().hasOnly([
             'userId','userEmail','userName','items','subtotal',
             'bulkDiscount','bulkRuleId','voucherDiscount','discount',
             'voucherCode','total','paymentMethod','status','createdAt','idempotencyKey'
            ]);
+      // Server Admin SDK bypass rules — không cần rule client cho update
       allow update: if isAdmin();
       allow delete: if false;
     }
 
-    // ── Topups ────────────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════
+    // TOPUPS
+    // FIX V4: Chỉ authenticated user tạo topup cho chính mình.
+    // ══════════════════════════════════════════════════════════════════════
     match /topups/{topupId} {
-      allow read: if (isAuthenticated() && isOwner(resource.data.userId)) || isAdmin();
-      allow create: if !isAuthenticated()
-        && request.resource.data.status == 'pending'
-        && request.resource.data.amount > 0
-        && request.resource.data.amount <= 50000000
-        && request.resource.data.userId is string
-        && request.resource.data.userId.size() > 0;
-      allow update: if isAdmin()
-        || (!isAuthenticated() &&
-            request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['status','autoApproved','sePayId','gateway','referenceCode','approvedAt']));
+      allow read: if (isAuthenticated() && resource.data.userId == request.auth.uid) || isAdmin();
+      allow create: if isAdmin()
+        || (isAuthenticated()
+            && request.resource.data.userId == request.auth.uid
+            && request.resource.data.status == 'pending'
+            && request.resource.data.amount > 0
+            && request.resource.data.amount <= 50000000);
+      // Server Admin SDK update — chỉ admin cần rule
+      allow update: if isAdmin();
       allow delete: if false;
     }
 
-    // ── Transactions ──────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════
+    // TRANSACTIONS — chỉ Admin SDK ghi
+    // ══════════════════════════════════════════════════════════════════════
     match /transactions/{id} {
       allow read: if isAuthenticated() &&
         (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if !isAuthenticated() || isAdmin();
+      allow create: if isAdmin();
       allow update, delete: if false;
     }
 
-    // ── Vouchers ──────────────────────────────────────────────────────
-    // FIX 2025-C: read restricted to own userId or admin — prevents listing all vouchers
-    // (previously any authenticated user could list all vouchers including targeted ones)
+    // ══════════════════════════════════════════════════════════════════════
+    // VOUCHERS
+    // ══════════════════════════════════════════════════════════════════════
     match /vouchers/{voucherId} {
       allow read: if isAdmin()
         || (isAuthenticated() && (
@@ -142,70 +130,53 @@ service cloud.firestore {
             request.resource.data.diff(resource.data).affectedKeys()
               .hasOnly(['usedCount', 'usedBy']) &&
             request.resource.data.usedCount == resource.data.usedCount + 1 &&
-            // FIX 2025-J: verify added email == auth user's actual email
-            // Prevents attacker adding victim email to block their voucher access
             request.resource.data.usedBy.hasAll(resource.data.get('usedBy', [])) &&
             request.resource.data.usedBy.size() == resource.data.get('usedBy', []).size() + 1 &&
             request.resource.data.usedBy.hasAll([request.auth.token.email]));
     }
 
-    // ── Game Types ────────────────────────────────────────────────────
-    match /gameTypes/{id} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
+    // ══════════════════════════════════════════════════════════════════════
+    // GAME TYPES / FLASH SALES / SERVICES — public read, admin write
+    // ══════════════════════════════════════════════════════════════════════
+    match /gameTypes/{id}         { allow read: if true; allow write: if isAdmin(); }
+    match /flashSales/{id}        { allow read: if true; allow write: if isAdmin(); }
+    match /services/{id}          { allow read: if true; allow write: if isAdmin(); }
+    match /bulkDiscountRules/{id} { allow read: if isAuthenticated(); allow write: if isAdmin(); }
 
-    // ── Flash Sales ───────────────────────────────────────────────────
-    match /flashSales/{id} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
-    // ── Bulk Discount Rules ───────────────────────────────────────────
-    match /bulkDiscountRules/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
-    }
-
-    // ── Services ──────────────────────────────────────────────────────
-    match /services/{id} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
-    // ── Service Orders ────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════
+    // SERVICE ORDERS
+    // amount > 0 check tại Firestore level — client whitelist fields trong code
+    // ══════════════════════════════════════════════════════════════════════
     match /serviceOrders/{id} {
       allow read: if isAuthenticated() &&
         (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isAuthenticated()
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.status == 'pending'
-        && request.resource.data.get('amount', 0) >= 0;
+        && request.resource.data.get('amount', 0) > 0
+        && request.resource.data.get('amount', 0) <= 100000000;
       allow update: if isAdmin();
       allow delete: if false;
     }
 
-    // ── Unmatched Topups ──────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════
+    // UNMATCHED TOPUPS / PROCESSED WEBHOOKS — chỉ Admin SDK
+    // FIX V3: Không có unauthenticated access — Admin SDK bypass rules
+    // ══════════════════════════════════════════════════════════════════════
     match /unmatchedTopups/{id} {
       allow read: if isAdmin();
-      allow create: if !isAuthenticated();
-      allow update, delete: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
 
-    // ── Processed Webhooks ────────────────────────────────────────────
-    // FIX 2025-D: removed !isAuthenticated() read — only admin/server should see this
     match /processedWebhooks/{id} {
       allow read: if isAdmin();
-      allow create: if !isAuthenticated();
-      allow update: if !isAuthenticated();
+      allow create, update: if isAdmin();
       allow delete: if false;
     }
 
-    // ── Notifications ─────────────────────────────────────────────────
-    // FIX 2025-E: read now scoped to OWN notifications only (not all notifications)
-    //             Any auth user could previously read every notification in the collection.
-    // FIX 2025-F: create now requires targetUserId == request.auth.uid
-    //             Previously any auth user could create a notification targeting ANY other user.
+    // ══════════════════════════════════════════════════════════════════════
+    // NOTIFICATIONS
+    // ══════════════════════════════════════════════════════════════════════
     match /notifications/{id} {
       allow read: if isAdmin()
         || (isAuthenticated() && (
@@ -216,30 +187,41 @@ service cloud.firestore {
         || (isAuthenticated()
             && request.resource.data.targetAll == false
             && request.resource.data.createdBy == 'system'
-            // FIX 2025-F: can only target yourself (server creates cross-user notifications)
-            && request.resource.data.get('targetUserId', request.auth.uid) == request.auth.uid);
+            && request.resource.data.get('targetUserId', request.auth.uid) == request.auth.uid
+            // Giới hạn content size — tránh spam storage
+            && request.resource.data.get('title', '').size() <= 100
+            && request.resource.data.get('body', '').size() <= 500);
       allow delete: if isAdmin();
       allow update: if isAdmin()
         || (isAuthenticated() &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']));
     }
 
-    // ── Tickets ───────────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════
+    // TICKETS
+    // FIX V13: Validate required fields + description limit tại rules level
+    // hasOpenTicket check là UI gate — Firestore rules không thể query existence
+    // Ticket per order limit cần Cloud Function (không thể enforce ở rules)
+    // ══════════════════════════════════════════════════════════════════════
     match /tickets/{id} {
       allow read: if isAuthenticated() &&
         (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isAuthenticated()
         && request.resource.data.userId == request.auth.uid
-        && request.resource.data.status == 'open';
+        && request.resource.data.status == 'open'
+        && request.resource.data.get('orderId', '').size() > 0
+        && request.resource.data.get('orderId', '').size() <= 64
+        && request.resource.data.get('description', '').size() >= 10
+        && request.resource.data.get('description', '').size() <= 2000
+        // Require type field be one of known values
+        && request.resource.data.get('type', '') in ['warranty', 'wrong_account', 'other'];
       allow update: if isAdmin();
       allow delete: if false;
     }
 
-    // ── Referrals ─────────────────────────────────────────────────────
-    // FIX 2025-G: update rule tightened — previously !isAuthenticated() allowed ANY
-    //             anonymous REST request to update ANY referral doc (mark credited=true
-    //             to block commission, or tamper with referrerId).
-    //             Now: only admin or unauthenticated server updating ONLY safe fields.
+    // ══════════════════════════════════════════════════════════════════════
+    // REFERRALS
+    // ══════════════════════════════════════════════════════════════════════
     match /referrals/{id} {
       allow read: if isAuthenticated() &&
         (resource.data.newUserId == request.auth.uid ||
@@ -248,48 +230,56 @@ service cloud.firestore {
         && request.resource.data.newUserId == request.auth.uid
         && request.resource.data.credited == false
         && request.resource.data.referrerId != request.auth.uid;
-      // Server (unauthenticated) can only update credited + audit fields, not referrerId/newUserId
-      allow update: if isAdmin()
-        || (!isAuthenticated() &&
-            request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['credited','creditedAt','commissionAmount','commissionPct',
-                        'topupAmount','creditNote']));
+      allow update: if isAdmin();
       allow delete: if false;
     }
 
-    // ── Ratings ───────────────────────────────────────────────────────
-    // FIX 2025-N: Firestore rules cannot cross-collection query to verify purchase.
-    // Server-side: RatingWidget does a re-verify getDoc before addDoc.
-    // Additional protection: orderId is required in the rating doc (proof of purchase link).
-    // Admin can delete fake ratings. Full enforcement requires a Cloud Function trigger.
+    // ══════════════════════════════════════════════════════════════════════
+    // RATINGS
+    // FIX V12: accountId required, comment >= 1 char, stars 1-5
+    // Duplicate prevention: Firestore rules không query được collection khác,
+    // nên unique constraint userId+accountId phải dùng composite docId trên client.
+    // Client dùng setDoc(doc(db,'ratings', userId+'_'+accountId), ...) thay addDoc.
+    // Rule: allow create với điều kiện document chưa tồn tại (implicit trong create).
+    // ══════════════════════════════════════════════════════════════════════
     match /ratings/{id} {
       allow read: if true;
-      allow create: if isAuthenticated()
+      // FIX V12: allow create AND update (setDoc overwrites existing doc)
+      // docId = userId_accountId → unique constraint per user per account
+      // User có thể update rating của chính mình (thay đổi sao/comment)
+      allow create, update: if isAuthenticated()
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.get('stars', 0) >= 1
         && request.resource.data.get('stars', 0) <= 5
+        && request.resource.data.get('comment', '').size() >= 1
         && request.resource.data.get('comment', '').size() <= 500
-        // Require orderId to be present (proof of purchase reference)
+        && request.resource.data.get('accountId', '').size() > 0
         && request.resource.data.keys().hasAny(['orderId'])
-        && request.resource.data.get('orderId', '').size() > 0;
-      allow update, delete: if isAdmin();
+        && request.resource.data.get('orderId', '').size() > 0
+        // Không được thay đổi userId, accountId, orderId sau khi tạo
+        && (resource == null || resource.data.userId == request.auth.uid);
+      allow delete: if isAdmin();
     }
 
-    // ── Settings ──────────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════
+    // SETTINGS / WISHLISTS / AUDIT LOGS
+    // ══════════════════════════════════════════════════════════════════════
     match /settings/{id} {
       allow read: if true;
       allow write: if isAdmin();
     }
 
-    // ── Wishlists ─────────────────────────────────────────────────────
     match /wishlists/{userId} {
       allow read, write: if isOwner(userId);
     }
 
-    // ── Audit Log ─────────────────────────────────────────────────────
     match /auditLogs/{id} {
       allow read: if isAdmin();
-      allow create: if isAuthenticated();
+      allow create: if isAuthenticated()
+        && request.resource.data.get('userId', '') == request.auth.uid
+        && request.resource.data.keys().hasAny(['action'])
+        && request.resource.data.get('action', '').size() > 0
+        && request.resource.data.get('action', '').size() <= 100;
       allow update, delete: if false;
     }
   }

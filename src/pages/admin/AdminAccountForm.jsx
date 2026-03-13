@@ -137,89 +137,6 @@ function CredSlot({ slot, idx, total, onChange, onRemove, onDuplicate }) {
 
 // ── Giới hạn tối đa ─────────────────────────────────
 const MAX_QUANTITY = 500;
-const WINDOW_SIZE  = 12; // số slots render cùng lúc
-const SLOT_HEIGHT  = 52; // chiều cao mỗi slot (collapsed), px
-
-// ── Virtualized credential list ──────────────────────
-// Thay vì render toàn bộ N slots (gây lag khi N=100+),
-// chỉ render WINDOW_SIZE slots xung quanh viewport hiện tại.
-// Slots ngoài viewport = placeholder div giữ chiều cao.
-function VirtualCredList({ credentials, onUpdate, onRemove, onDuplicate }) {
-  const containerRef = useRef(null);
-  const [visibleStart, setVisibleStart] = useState(0);
-  const total = credentials.length;
-
-  // Tính range cần render
-  const visibleEnd = Math.min(total, visibleStart + WINDOW_SIZE);
-
-  // Scroll handler — cập nhật window khi admin cuộn
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    const handler = () => {
-      const rect = container.getBoundingClientRect();
-      const scrollTop = window.scrollY + Math.max(0, -rect.top);
-      const newStart = Math.max(0, Math.floor(scrollTop / SLOT_HEIGHT) - 2);
-      setVisibleStart(Math.min(newStart, Math.max(0, total - WINDOW_SIZE)));
-    };
-
-    window.addEventListener('scroll', handler, { passive: true });
-    return () => window.removeEventListener('scroll', handler);
-  }, [total]);
-
-  // Khi có slot đang mở (expanded), giữ nó luôn trong range visible
-  const expandedIdx = useMemo(
-    () => credentials.findIndex(s => s._expanded),
-    [credentials]
-  );
-  const effectiveStart = expandedIdx >= 0 && (expandedIdx < visibleStart || expandedIdx >= visibleEnd)
-    ? Math.max(0, expandedIdx - 2)
-    : visibleStart;
-  const effectiveEnd = Math.min(total, effectiveStart + WINDOW_SIZE);
-
-  // Chiều cao placeholder trước/sau vùng visible
-  const topPad    = effectiveStart * SLOT_HEIGHT;
-  const bottomPad = Math.max(0, total - effectiveEnd) * SLOT_HEIGHT;
-
-  return (
-    <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {/* Placeholder trên */}
-      {topPad > 0 && (
-        <div style={{ height: topPad, display: 'flex', alignItems: 'center',
-          justifyContent: 'center', color: 'var(--text-muted)', fontSize: 12,
-          background: 'rgba(0,0,0,0.04)', borderRadius: 8 }}>
-          ↑ Slot 1–{effectiveStart} (cuộn lên để xem)
-        </div>
-      )}
-
-      {/* Slots thực sự được render */}
-      {credentials.slice(effectiveStart, effectiveEnd).map((slot, i) => {
-        const idx = effectiveStart + i;
-        return (
-          <CredSlot
-            key={idx}
-            slot={slot}
-            idx={idx}
-            total={total}
-            onChange={onUpdate}
-            onRemove={onRemove}
-            onDuplicate={onDuplicate}
-          />
-        );
-      })}
-
-      {/* Placeholder dưới */}
-      {bottomPad > 0 && (
-        <div style={{ height: bottomPad, display: 'flex', alignItems: 'center',
-          justifyContent: 'center', color: 'var(--text-muted)', fontSize: 12,
-          background: 'rgba(0,0,0,0.04)', borderRadius: 8 }}>
-          Slot {effectiveEnd + 1}–{total} (cuộn xuống để xem) ↓
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ═══════════════════════════════════════════════
 const AdminAccountForm = () => {
@@ -286,25 +203,8 @@ const AdminAccountForm = () => {
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-    if (name === 'quantity') {
-      const raw = parseInt(value) || 1;
-      const qty = Math.min(MAX_QUANTITY, Math.max(1, raw));
-      if (raw > MAX_QUANTITY) {
-        toast.error(`Tối đa ${MAX_QUANTITY} slot trên mỗi listing.`, { duration: 3000 });
-      }
-      setForm(p => ({ ...p, quantity: qty }));
-      setCredentials(prev => {
-        if (qty > prev.length) {
-          // Slot mới: collapsed (_expanded=false) để tránh lag DOM khi thêm nhiều
-          return [...prev, ...Array.from({ length: qty - prev.length },
-            () => ({ ...emptySlot(), _expanded: false }))];
-        } else {
-          return prev.slice(0, qty);
-        }
-      });
-    } else {
-      setForm(p => ({ ...p, [name]: type === 'checkbox' ? checked : value }));
-    }
+    // 'quantity' is now readonly — controlled only via addSlot/removeSlot/duplicateSlot/applyBulk
+    setForm(p => ({ ...p, [name]: type === 'checkbox' ? checked : value }));
   };
 
   const updateSlot = (idx, slot) => setCredentials(p => p.map((s, i) => i === idx ? slot : s));
@@ -579,8 +479,15 @@ const AdminAccountForm = () => {
                       <span className="qty-badge">{form.quantity} slot</span>
                     )}
                   </label>
-                  <input type="number" name="quantity" value={form.quantity} onChange={handleChange}
-                    className="form-input" min="1" max={MAX_QUANTITY}/>
+                  {/* Readonly — số lượng tự động = số slots đang có.
+                      Thêm slot bằng nút "+ Thêm slot" hoặc Bulk Paste. */}
+                  <input type="number" name="quantity" value={form.quantity}
+                    readOnly
+                    className="form-input" style={{ background:'var(--bg-hover)', cursor:'not-allowed', color:'var(--text-muted)' }}
+                    title="Số lượng tự động = số slots bên dưới. Dùng '+ Thêm slot' hoặc Bulk Paste để thay đổi."/>
+                  <p style={{ fontSize:11, color:'var(--text-muted)', marginTop:4 }}>
+                    Tự động = số slots. Dùng <strong>+ Thêm slot</strong> hoặc <strong>Bulk Paste</strong> để thay đổi.
+                  </p>
                 </div>
               </div>
               {form.quantity > 1 && (
@@ -671,27 +578,31 @@ const AdminAccountForm = () => {
               ⚠️ Mỗi slot = 1 tài khoản thực. Buyer nhận theo thứ tự từ Slot 1. Điền chính xác!
             </p>
 
-            {/* Performance tip khi nhiều slot */}
+            {/* Tip khi nhiều slot */}
             {credentials.length > 20 && (
               <div style={{ fontSize:12, color:'#f0a500', background:'rgba(240,165,0,0.08)',
                 border:'1px solid rgba(240,165,0,0.25)', borderRadius:8,
                 padding:'8px 12px', marginBottom:12, display:'flex', gap:8, alignItems:'flex-start' }}>
                 <span style={{ flexShrink:0 }}>⚡</span>
                 <span>
-                  <strong>{credentials.length} slots</strong> — chỉ hiển thị {WINDOW_SIZE} slot gần nhất để tránh lag.
-                  Dùng <strong>Bulk Paste</strong> để điền nhanh. Cuộn để xem các slot còn lại.
-                  {credentials.length > 100 && <span style={{ color:'var(--danger)' }}> Với {credentials.length} slots, nên dùng Bulk Paste thay vì điền tay từng slot.</span>}
+                  <strong>{credentials.length} slots</strong> — dùng <strong>Bulk Paste</strong> để điền nhanh thay vì điền tay từng slot.
+                  {credentials.length > 100 && <span style={{ color:'var(--danger)' }}> Với {credentials.length} slots, nên dùng Bulk Paste.</span>}
                 </span>
               </div>
             )}
 
             <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-              <VirtualCredList
-                credentials={credentials}
-                onUpdate={updateSlot}
-                onRemove={removeSlot}
-                onDuplicate={duplicateSlot}
-              />
+              {credentials.map((slot, idx) => (
+                <CredSlot
+                  key={idx}
+                  slot={slot}
+                  idx={idx}
+                  total={credentials.length}
+                  onChange={updateSlot}
+                  onRemove={removeSlot}
+                  onDuplicate={duplicateSlot}
+                />
+              ))}
             </div>
           </div>
 

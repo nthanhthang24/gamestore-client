@@ -1,7 +1,7 @@
 // src/pages/admin/AdminBulkImport.jsx
 import { useConfirm } from '../../components/shared/ConfirmModal';
 import React, { useState, useRef } from 'react';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { Upload, Download, CheckCircle, AlertTriangle, FileText } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -93,7 +93,10 @@ const AdminBulkImport = () => {
         const note = (r.loginnote || r.loginNote || '').trim();
         const cred = { loginUsername:uname, loginPassword:upass, loginEmail:uemail, loginNote:note,
           attachmentContent:null, attachmentName:null };
-        await addDoc(collection(db,'accounts'), {
+
+        // FIX: tách credentials ra subcollection /accounts/{id}/credentials/slots
+        // KHÔNG đặt credentials trong main doc (main doc có allow read: if true → public!)
+        const publicPayload = {
           title:         r.title.trim(),
           price:         Number(r.price),
           originalPrice: r.originalprice || r.originalPrice ? Number(r.originalprice||r.originalPrice) : null,
@@ -105,15 +108,15 @@ const AdminBulkImport = () => {
           soldCount:     0,
           views:         0,
           images:        [],
-          credentials:   [cred],
-          loginUsername: uname,
-          loginPassword: upass,
-          loginEmail:    uemail,
-          loginNote:     note,
-          attachmentContent: null,
-          attachmentName: null,
           createdAt:     serverTimestamp(),
           updatedAt:     serverTimestamp(),
+        };
+        // KHÔNG có: credentials, loginUsername, loginPassword, loginEmail, loginNote
+        const accountRef = await addDoc(collection(db,'accounts'), publicPayload);
+        // Credentials vào subcollection — rule: allow read/write: if isAdmin()
+        await setDoc(doc(db,'accounts', accountRef.id, 'credentials', 'slots'), {
+          slots: [cred],
+          updatedAt: serverTimestamp(),
         });
         success++;
       } catch(e) { fail++; console.error('Row import error:', e); }

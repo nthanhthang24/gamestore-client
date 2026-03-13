@@ -3,7 +3,7 @@ import { useConfirm } from '../../components/shared/ConfirmModal';
 import React, { useState, useEffect } from 'react';
 import {
   collection, query, orderBy, onSnapshot, where, getDocs,
-  doc, updateDoc, runTransaction, serverTimestamp, increment
+  doc, updateDoc, runTransaction, serverTimestamp, increment, getDoc
 } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { CheckCircle, XCircle, Clock, Wallet, RefreshCw } from 'lucide-react';
@@ -59,7 +59,9 @@ const AdminTopups = () => {
     if (!(await confirm(`Duyệt nạp ${topup.amount?.toLocaleString('vi-VN')}đ cho ${topup.userEmail}?`, 'primary'))) return;
     setProcessing(topup.id);
     try {
-      // ✅ Bước 1: Approve + cộng tiền user (atomic transaction)
+      // ✅ FIX 2025-R: Read amount FROM Firestore snapshot inside transaction,
+      // NOT from topup.amount (React UI state) which could be tampered via DevTools.
+      let approvedAmount = 0;
       await runTransaction(db, async (transaction) => {
         const topupRef = doc(db, 'topups', topup.id);
         const topupSnap = await transaction.get(topupRef);
@@ -68,16 +70,25 @@ const AdminTopups = () => {
         if (topupSnap.data().status !== 'pending') {
           throw new Error(`Topup đã ở trạng thái "${topupSnap.data().status}", không thể duyệt lại`);
         }
+        // ✅ Read verified amount from Firestore — never trust UI state for financial ops
+        approvedAmount = topupSnap.data().amount;
+        if (!approvedAmount || approvedAmount <= 0 || approvedAmount > 50_000_000) {
+          throw new Error(`Số tiền không hợp lệ trong Firestore: ${approvedAmount}`);
+        }
         const userRef = doc(db, 'users', topup.userId);
         const userSnap = await transaction.get(userRef);
         if (!userSnap.exists()) throw new Error('User không tồn tại');
-        const currentBalance = userSnap.data().balance || 0;
+        // FIX: dùng increment() thay vì read+add — tránh race condition
+        // khi 2 admin duyệt cùng lúc cả 2 đều đọc balance cũ → double credit
         transaction.update(topupRef, { status: 'approved', approvedAt: serverTimestamp() });
-        transaction.update(userRef, { balance: currentBalance + topup.amount });
+        transaction.update(userRef, {
+          balance: increment(approvedAmount), // atomic server-side increment
+          updatedAt: serverTimestamp(),
+        });
       });
 
       setTopups(prev => prev.map(t => t.id === topup.id ? { ...t, status: 'approved' } : t));
-      toast.success(`Đã duyệt +${topup.amount?.toLocaleString('vi-VN')}đ cho ${topup.userEmail}`, {
+      toast.success(`Đã duyệt +${approvedAmount?.toLocaleString('vi-VN')}đ cho ${topup.userEmail}`, {
         style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' }
       });
 
@@ -110,10 +121,12 @@ const AdminTopups = () => {
                 // Double-check vẫn chưa credited (tránh race condition)
                 if (referralSnap.exists() && referralSnap.data().credited === false) {
                   const referrerRef = doc(db, 'users', referrerId);
-                  const referrerSnap = await tx.get(referrerRef);
-                  if (referrerSnap.exists()) {
-                    tx.update(referrerRef, { balance: (referrerSnap.data().balance || 0) + REFERRAL_BONUS });
-                  }
+                  // FIX: dùng increment() — tránh race condition double bonus
+                  // (2 admin duyệt cùng lúc cả 2 đọc balance cũ → double credit)
+                  tx.update(referrerRef, {
+                    balance: increment(REFERRAL_BONUS),
+                    updatedAt: serverTimestamp(),
+                  });
                   tx.update(referralRef, { credited: true, creditedAt: serverTimestamp() });
                 }
               });
@@ -358,8 +371,9 @@ export const UnmatchedTopupsPanel = () => {
 
       await runTransaction(db, async (tx) => {
         const uRef = doc(db,'users',userDoc.id);
-        const uSnap = await tx.get(uRef);
-        tx.update(uRef,{ balance:(uSnap.data().balance||0)+item.amount });
+        await tx.get(uRef); // lock the doc in transaction
+        // FIX: dùng increment() — atomic, không có race condition double-credit
+        tx.update(uRef,{ balance: increment(item.amount), updatedAt: serverTimestamp() });
         tx.update(doc(db,'unmatchedTopups',item.id),{
           status:'matched', matchedUserId:userDoc.id, matchedEmail:email.trim(),
           matchedAt: serverTimestamp(),

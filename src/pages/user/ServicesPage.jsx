@@ -292,18 +292,26 @@ const ServicesPage = () => {
         : (formData.estimatedPrice || 0); // admin quotes variable pricing
 
       await addDoc(collection(db, 'serviceOrders'), {
-        serviceId: selectedService.id || selectedService.type,
-        serviceName: selectedService.name,
-        serviceType: selectedService.type,
-        userId: currentUser.uid,
-        userEmail: currentUser.email,
-        userName: userProfile?.displayName || currentUser.email,
-        ...formData,
-        amount: verifiedAmount, // verified server-readable amount
+        // FIX: KHÔNG dùng ...formData spread — chỉ whitelist các field cần thiết
+        // Tránh user inject field lạ (userId, balance, role, status, amount...)
+        serviceId:     selectedService.id || selectedService.type,
+        serviceName:   selectedService.name,
+        serviceType:   selectedService.type,
+        userId:        currentUser.uid,
+        userEmail:     currentUser.email,
+        userName:      userProfile?.displayName || currentUser.email,
+        // Whitelist từ formData
+        quantity:      Math.max(1, Math.floor(Number(formData.quantity) || 1)),
+        gameAccount:   (formData.gameAccount || '').slice(0, 200),
+        contactMethod: formData.contactMethod || 'zalo',
+        contactInfo:   (formData.contactInfo || '').slice(0, 200),
+        note:          (formData.note || '').slice(0, 500),
+        // Server-verified fields — override bất kỳ giá trị từ formData
+        amount:        verifiedAmount,
         estimatedPrice: verifiedAmount,
-        priceType: selectedService.priceType,
-        status: 'pending',
-        createdAt: serverTimestamp(),
+        priceType:     selectedService.priceType,
+        status:        'pending',
+        createdAt:     serverTimestamp(),
       });
       // ✅ FIX: Send confirmation notification to user
       try {

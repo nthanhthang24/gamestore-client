@@ -1,8 +1,8 @@
 // src/pages/user/RatingWidget.jsx  — reusable rating widget
 import React, { useState, useEffect } from 'react';
 import {
-  collection, query, where, getDocs, onSnapshot, addDoc,
-  serverTimestamp, orderBy, doc, getDoc
+  collection, query, where, getDocs, onSnapshot,
+  serverTimestamp, orderBy, doc, getDoc, setDoc
 } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { Star } from 'lucide-react';
@@ -99,7 +99,11 @@ export const RatingWidget = ({ accountId, currentUser, onCountChange }) => {
         toast.error('Không thể xác nhận đơn hàng. Vui lòng thử lại.', TS);
         return;
       }
-      await addDoc(collection(db,'ratings'), {
+      // FIX V12: Dùng setDoc với composite docId (userId_accountId) thay vì addDoc
+      // → Firestore đảm bảo mỗi user chỉ có 1 rating cho mỗi account (unique constraint)
+      // → Attacker không thể spam addDoc nhiều lần — setDoc sẽ overwrite doc cũ
+      const ratingDocId = `${currentUser.uid}_${accountId}`;
+      await setDoc(doc(db, 'ratings', ratingDocId), {
         accountId,
         userId:      currentUser.uid,
         userEmail:   currentUser.email,

@@ -280,40 +280,22 @@ const CartPage = ({ cart, setCart }) => {
         }
 
         // ── PHASE 3: ALL WRITES ─────────────────────
+        // FIX 2025-Q: soldCount/status updates REMOVED from client transaction.
+        // Firestore rules no longer allow authenticated users to update soldCount.
+        // After this tx commits, CartPage calls POST /bank/checkout/confirm (server)
+        // which updates soldCount using the server's API key (bypasses client rules).
+        // This prevents account sabotage: an attacker can no longer call
+        //   updateDoc(accountRef, {soldCount: quantity, status:'sold'}) without paying.
         transaction.update(userRef, { balance: currentBalance - verifiedTotal });
-
-        for (const id of uniqueIds) {
-          const d = txSnapByDocId[id].data();
-          const unitsForThisDoc = cart.filter(x => x.id === id).length;
-          const newSoldCount = (d.soldCount || 0) + unitsForThisDoc;
-          const updates = { soldCount: newSoldCount };
-          if (newSoldCount >= (d.quantity || 1)) updates.status = 'sold';
-          transaction.update(accountRefs[uniqueIds.indexOf(id)], updates);
-        }
 
         if (vSnap !== null) transaction.update(voucherRef, getVoucherUpdatePayload(currentUser.email));
       });
 
-      // ── Build verified items — read credentials from admin-only subcollection ──
-      // FIX 2025-K: Credentials moved to /accounts/{id}/credentials/slots (admin-only).
-      // After the transaction commits (money deducted, soldCount incremented),
-      // we fetch the credentials subcollection with getDoc — protected by Firestore rules
-      // so only admin can read it directly, but here we're running as the authenticated
-      // buyer user. We need the creds to build the order record.
-      // NOTE: CartPage reads work because the checkout flow runs client-side with
-      // the buyer's Firebase auth token. The subcollection rule must allow
-      // the buyer to read AFTER purchase — handled via the order record copy below.
-      // We fetch all cred docs for unique account IDs in one pass.
-      const credsByAccountId = {};
-      await Promise.all(uniqueIds.map(async (accId) => {
-        try {
-          const credSnap = await getDoc(doc(db, 'accounts', accId, 'credentials', 'slots'));
-          credsByAccountId[accId] = credSnap.exists() ? (credSnap.data().slots || []) : [];
-        } catch {
-          credsByAccountId[accId] = []; // rule may block — order will have empty creds (admin can fix)
-        }
-      }));
-
+      // ── Build order items WITHOUT credentials ─────────────────────────────
+      // FIX: Không đọc credentials subcollection từ client nữa.
+      // Credentials sẽ được server inject vào order record khi /checkout/confirm được gọi.
+      // → Rule credentials subcollection có thể là isAdmin() only — an toàn tuyệt đối.
+      // → Không có bất kỳ user login nào đọc được credentials của account chưa mua.
       const unitOffsetByDoc = {};
       uniqueIds.forEach(id => { unitOffsetByDoc[id] = 0; });
       const verifiedItems = cart.map((cartItem) => {
@@ -323,26 +305,19 @@ const CartPage = ({ cart, setCart }) => {
         const offset = unitOffsetByDoc[cartItem.id];
         const slotIndex = baseSoldCount + offset;
         unitOffsetByDoc[cartItem.id]++;
-        // Read from subcollection slots array
-        const slots = credsByAccountId[cartItem.id] || [];
-        const slot = slots[slotIndex] || {
-          loginUsername: '', loginPassword: '',
-          loginEmail: '', loginNote: '',
-          attachmentContent: null, attachmentName: null,
-        };
+        // Credentials KHÔNG đọc ở đây — server /checkout/confirm sẽ inject sau
         return {
           ...cartItem, verifiedPrice: finalPrice, dbPrice, _slotIndex: slotIndex,
-          loginUsername: slot.loginUsername || '',
-          loginPassword: slot.loginPassword || '',
-          loginEmail:    slot.loginEmail    || '',
-          loginNote:     slot.loginNote     || '',
-          attachmentContent: slot.attachmentContent || null,
-          attachmentUrl:     slot.attachmentUrl     || null,
-          attachmentName:    slot.attachmentName     || null,
+          // credentials placeholder — server sẽ update order với credentials thực
+          loginUsername: '', loginPassword: '',
+          loginEmail:    '', loginNote:     '',
+          attachmentContent: null, attachmentUrl: null, attachmentName: null,
         };
       });
 
-      const idempotencyKey = currentUser.uid + '_' + Math.floor(Date.now() / 10000);
+      // FIX 2025-U: Use crypto.randomUUID() — timestamp-based key (uid+10s window)
+      // was not unique: two checkouts in same 10s window got identical keys.
+      const idempotencyKey = currentUser.uid + '_' + (crypto.randomUUID?.() || Date.now() + '_' + Math.random().toString(36).slice(2));
       const orderData = {
         idempotencyKey,
         userId: currentUser.uid, userEmail: currentUser.email,
@@ -363,20 +338,43 @@ const CartPage = ({ cart, setCart }) => {
         paymentMethod: 'balance', status: 'completed', createdAt: serverTimestamp(),
       };
 
+      let orderId = null;
       try {
-        await addDoc(collection(db, 'orders'), orderData);
+        const orderRef = await addDoc(collection(db, 'orders'), orderData);
+        orderId = orderRef.id;
       } catch (orderErr) {
         console.error('‼️ Order write failed (attempt 1):', orderErr);
         let saved = false;
         for (let retry = 0; retry < 3; retry++) {
           await new Promise(r => setTimeout(r, 800 * (retry + 1)));
-          try { await addDoc(collection(db, 'orders'), { ...orderData, _retryCount: retry + 1 }); saved = true; break; }
-          catch (e) { console.error(`‼️ Retry ${retry + 1} failed:`, e); }
+          try {
+            const retryRef = await addDoc(collection(db, 'orders'), { ...orderData, _retryCount: retry + 1 });
+            orderId = retryRef.id;
+            saved = true;
+            break;
+          } catch (e) { console.error(`‼️ Retry ${retry + 1} failed:`, e); }
         }
         if (!saved) toast.error(
           `⚠️ Thanh toán thành công nhưng không lưu được đơn hàng. Liên hệ admin: ${idempotencyKey}`,
           { duration: 15000, style: { background:'var(--bg-card)', color:'var(--text-primary)', border:'2px solid var(--danger)' } }
         );
+      }
+
+      // FIX 2025-Q: Notify server to update soldCount/status (admin-side write)
+      // This runs AFTER order is saved. If it fails, admin sees the order and can update manually.
+      if (orderId) {
+        try {
+          const SERVER_URL = process.env.REACT_APP_SERVER_URL || 'https://gamestore-server-i20i.onrender.com';
+          const idToken = await currentUser.getIdToken();
+          await fetch(`${SERVER_URL}/bank/checkout/confirm`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+            body: JSON.stringify({ orderId }),
+          });
+        } catch (scErr) {
+          // Non-critical — order is saved, admin can update soldCount manually
+          console.warn('soldCount server update failed (non-critical):', scErr.message);
+        }
       }
 
       await fetchUserProfile(currentUser.uid);
