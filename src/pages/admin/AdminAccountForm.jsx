@@ -185,20 +185,34 @@ const AdminAccountForm = () => {
     });
     setImages(d.images||[]);
     if (d.stats) setStats(Object.entries(d.stats).map(([key,value]) => ({ key, value })));
-
-    // Load credentials array
-    const creds = d.credentials?.length ? d.credentials : [
-      {
-        loginUsername: d.loginUsername||'',
-        loginPassword: d.loginPassword||'',
-        loginEmail: d.loginEmail||'',
-        loginNote: d.loginNote||'',
-        attachmentContent: d.attachmentContent||null,
-        attachmentName: d.attachmentName||null,
-      }
-    ];
-    setCredentials(creds.map(c => ({ ...emptySlot(), ...c, _expanded: false })));
     setExistingSoldCount(d.soldCount || 0);
+
+    // BUG FIX: credentials đã chuyển sang subcollection từ Sprint 25
+    // Public doc không còn chứa credentials → phải đọc từ accounts/{id}/credentials/slots
+    try {
+      const credSnap = await getDoc(doc(db, 'accounts', id, 'credentials', 'slots'));
+      if (credSnap.exists() && credSnap.data().slots?.length) {
+        // Load từ subcollection — đây là source of truth
+        const slots = credSnap.data().slots;
+        setCredentials(slots.map(c => ({ ...emptySlot(), ...c, _expanded: false })));
+      } else {
+        // Fallback: account cũ (trước Sprint 25) còn lưu trong public doc
+        const creds = d.credentials?.length ? d.credentials : [
+          {
+            loginUsername: d.loginUsername||'',
+            loginPassword: d.loginPassword||'',
+            loginEmail: d.loginEmail||'',
+            loginNote: d.loginNote||'',
+            attachmentContent: d.attachmentContent||null,
+            attachmentName: d.attachmentName||null,
+          }
+        ];
+        setCredentials(creds.map(c => ({ ...emptySlot(), ...c, _expanded: false })));
+      }
+    } catch (e) {
+      console.warn('loadAccount: could not read credentials subcollection:', e.message);
+      setCredentials([emptySlot()]);
+    }
   };
 
   const handleChange = (e) => {
