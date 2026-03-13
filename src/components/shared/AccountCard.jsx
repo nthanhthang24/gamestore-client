@@ -15,12 +15,11 @@ const AccountCard = ({ account, onAddToCart, isWishlisted, onToggleWishlist, fla
   // Countdown từ activeFlashSale (đã fetch ở useFlashSale singleton)
   const cd = isFlashSale && flashCountdown && !flashCountdown.expired ? flashCountdown : null;
 
-   // 1 item = 1 combo, bán 1 lần duy nhất
+  // 1 item = 1 combo, bán 1 lần duy nhất
   const quantity  = account.quantity  != null ? account.quantity  : 1;
-   const soldCount = account.soldCount != null ? account.soldCount : 0;
-   const soldCount = account.soldCount != null ? account.soldCount : 0;
-   const isSold    = account.status === 'sold' || soldCount >= 1;
-   const showQty   = quantity > 1;
+  const soldCount = account.soldCount != null ? account.soldCount : 0;
+  const isSold    = account.status === 'sold' || soldCount >= 1;
+  const showQty   = quantity > 1;
 
   const rankColors = {
     'Đồng': '#cd7f32', 'Bạc': '#c0c0c0', 'Vàng': '#ffd700',
