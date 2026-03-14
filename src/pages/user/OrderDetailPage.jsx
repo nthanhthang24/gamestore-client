@@ -143,10 +143,47 @@ const OrderDetailPage = () => {
   const [expandedItems, setExpandedItems] = useState({});
   const toggleItem = (i) => setExpandedItems(p => ({ ...p, [i]: !p[i] }));
 
-  // Auto-expand first item if only 1 item
+  // Auto-expand items khi có credentials
   useEffect(() => {
-    if (order && (order.items||[]).length === 1) setExpandedItems({ 0: true });
-  }, [order?.id]);
+    if (!order) return;
+    const items = order.items || [];
+    const hasAnyCredentials = items.some(i =>
+      i.loginUsername || i.attachmentContent || i.attachmentUrl || (i.allCredentials?.length > 0)
+    );
+    if (hasAnyCredentials) {
+      // Expand tất cả items khi có credentials
+      const expanded = {};
+      items.forEach((_, idx) => { expanded[idx] = true; });
+      setExpandedItems(expanded);
+    } else if (items.length === 1) {
+      setExpandedItems({ 0: true });
+    }
+  }, [order?._credentialsInjected, order?.id]);
+
+  // Auto-call confirm khi order load và chưa có credentials
+  const autoConfirmCalled = React.useRef(false);
+  useEffect(() => {
+    if (!order || autoConfirmCalled.current) return;
+    // Kiểm tra xem đã có credentials chưa
+    const hasCredentials = (order.items||[]).some(i =>
+      i.loginUsername || i.attachmentContent || i.attachmentUrl || (i.allCredentials?.length > 0)
+    );
+    if (hasCredentials) return; // Đã có → không cần gọi
+    if (order._credentialsInjected && order._soldCountUpdated) return; // Server đã xử lý xong
+    // Chưa có → tự động gọi confirm
+    autoConfirmCalled.current = true;
+    (async () => {
+      try {
+        const result = await callConfirm();
+        if (!result.ok && result.error !== 'timeout' && result.error !== 'network') {
+          // Lỗi thật → hiện nút retry cho user
+          console.warn('Auto-confirm failed:', result.error);
+        }
+      } catch (e) {
+        console.warn('Auto-confirm error:', e.message);
+      }
+    })();
+  }, [order?.id, order?._credentialsInjected]);
 
   if (loading) return (
     <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:'60vh'}}>
@@ -382,7 +419,7 @@ const OrderDetailPage = () => {
                             {retrying ? 'Đang lấy thông tin...' : 'Chưa có thông tin đăng nhập'}
                           </div>
                           <div style={{fontSize:12,color:'var(--text-secondary)',lineHeight:1.6,marginBottom:10}}>
-                            {retrying ? 'Server đang xử lý, vui lòng chờ.' : 'Bấm nút bên dưới để lấy thông tin từ server.'}
+                            {retrying ? 'Server đang xử lý, vui lòng chờ.' : 'Đang tự động lấy thông tin... Nếu mất hơn 30s, bấm nút bên dưới.'}
                           </div>
                           <button
                             onClick={retryCredentialInject}
