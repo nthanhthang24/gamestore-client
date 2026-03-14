@@ -272,14 +272,23 @@ body::before {
   --text-secondary: #374151;
   --text-muted:   #6b7280;
   --border:       #d1d5db;
-  --accent:       #0066cc;
+  --border-bright:#b0b8c4;
+  --accent:       #2563eb;
+  --accent-dim:   rgba(37,99,235,0.12);
+  --accent-glow:  rgba(37,99,235,0.3);
   --accent2:      #7c3aed;
+  --accent2-dim:  rgba(124,58,237,0.12);
   --gold:         #d97706;
+  --gold-dim:     rgba(217,119,6,0.15);
   --success:      #16a34a;
+  --success-dim:  rgba(22,163,74,0.12);
   --danger:       #dc2626;
+  --danger-dim:   rgba(220,38,38,0.12);
+  --shadow-card:  0 1px 8px rgba(0,0,0,0.08);
+  --shadow-glow:  0 0 16px rgba(37,99,235,0.15);
 }
 [data-theme="light"] .card {
-  box-shadow: 0 1px 4px rgba(0,0,0,.08);
+  box-shadow: 0 1px 4px rgba(0,0,0,.06);
 }
 [data-theme="light"] .admin-sidebar,
 [data-theme="light"] .navbar {
@@ -291,6 +300,128 @@ body::before {
 [data-theme="light"] textarea {
   background: #f9fafb;
   color: #0d1117;
+}
+[data-theme="light"] body::before {
+  background-image:
+    linear-gradient(rgba(37,99,235,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(37,99,235,0.04) 1px, transparent 1px);
+}
+
+/* ── Violet Premium ───────────────────────────────── */
+[data-theme="violet"] {
+  --bg-primary:   #0d0b14;
+  --bg-secondary: #120f1e;
+  --bg-card:      #160f2a;
+  --bg-card-hover:#1e1538;
+  --border:       #2a1f45;
+  --border-bright:#3d2e62;
+  --accent:       #a855f7;
+  --accent-dim:   rgba(168,85,247,0.15);
+  --accent-glow:  rgba(168,85,247,0.4);
+  --accent2:      #ec4899;
+  --accent2-dim:  rgba(236,72,153,0.15);
+  --gold:         #f0abfc;
+  --gold-dim:     rgba(240,171,252,0.15);
+  --success:      #34d399;
+  --success-dim:  rgba(52,211,153,0.15);
+  --danger:       #f87171;
+  --danger-dim:   rgba(248,113,113,0.15);
+  --text-primary: #ede8f5;
+  --text-secondary:#9b8ab5;
+  --text-muted:   #5a4a75;
+  --shadow-card:  0 4px 24px rgba(0,0,0,0.5);
+  --shadow-glow:  0 0 20px rgba(168,85,247,0.25);
+}
+[data-theme="violet"] body::before {
+  background-image:
+    linear-gradient(rgba(168,85,247,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(168,85,247,0.04) 1px, transparent 1px);
+}
+[data-theme="violet"] .btn-primary {
+  background: linear-gradient(135deg, #a855f7, #7e22ce);
+  color: #fff;
+  box-shadow: 0 4px 15px rgba(168,85,247,0.35);
+}
+[data-theme="violet"] .btn-primary:hover {
+  box-shadow: 0 6px 20px rgba(168,85,247,0.55);
+}
+
+/* ── Indigo Clean ─────────────────────────────────── */
+[data-theme="indigo"] {
+  --bg-primary:   #0c0f14;
+  --bg-secondary: #10141b;
+  --bg-card:      #141820;
+  --bg-card-hover:#1b2030;
+  --border:       #1e2530;
+  --border-bright:#2a3548;
+  --accent:       #6366f1;
+  --accent-dim:   rgba(99,102,241,0.15);
+  --accent-glow:  rgba(99,102,241,0.4);
+  --accent2:      #a855f7;
+  --accent2-dim:  rgba(168,85,247,0.15);
+  --gold:         #fbbf24;
+  --gold-dim:     rgba(251,191,36,0.15);
+  --success:      #34d399;
+  --success-dim:  rgba(52,211,153,0.15);
+  --danger:       #f87171;
+  --danger-dim:   rgba(248,113,113,0.15);
+  --text-primary: #e2e8f0;
+  --text-secondary:#8896a8;
+  --text-muted:   #4a5568;
+  --shadow-card:  0 4px 24px rgba(0,0,0,0.45);
+  --shadow-glow:  0 0 20px rgba(99,102,241,0.2);
+}
+[data-theme="indigo"] body::before {
+  background-image:
+    linear-gradient(rgba(99,102,241,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(99,102,241,0.03) 1px, transparent 1px);
+}
+[data-theme="indigo"] .btn-primary {
+  background: linear-gradient(135deg, #6366f1, #4338ca);
+  color: #fff;
+  box-shadow: 0 4px 15px rgba(99,102,241,0.3);
+}
+[data-theme="indigo"] .btn-primary:hover {
+  box-shadow: 0 6px 20px rgba(99,102,241,0.5);
+}
+
+/* ── Emerald Dark ─────────────────────────────────── */
+[data-theme="emerald"] {
+  --bg-primary:   #080f0e;
+  --bg-secondary: #0c1614;
+  --bg-card:      #0f1a18;
+  --bg-card-hover:#162520;
+  --border:       #1a2e2b;
+  --border-bright:#234038;
+  --accent:       #10b981;
+  --accent-dim:   rgba(16,185,129,0.15);
+  --accent-glow:  rgba(16,185,129,0.4);
+  --accent2:      #06b6d4;
+  --accent2-dim:  rgba(6,182,212,0.15);
+  --gold:         #a3e635;
+  --gold-dim:     rgba(163,230,53,0.15);
+  --success:      #10b981;
+  --success-dim:  rgba(16,185,129,0.15);
+  --danger:       #f87171;
+  --danger-dim:   rgba(248,113,113,0.15);
+  --text-primary: #e0f0ec;
+  --text-secondary:#7aa89e;
+  --text-muted:   #3a5a55;
+  --shadow-card:  0 4px 24px rgba(0,0,0,0.5);
+  --shadow-glow:  0 0 20px rgba(16,185,129,0.2);
+}
+[data-theme="emerald"] body::before {
+  background-image:
+    linear-gradient(rgba(16,185,129,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(16,185,129,0.03) 1px, transparent 1px);
+}
+[data-theme="emerald"] .btn-primary {
+  background: linear-gradient(135deg, #10b981, #047857);
+  color: #000;
+  box-shadow: 0 4px 15px rgba(16,185,129,0.3);
+}
+[data-theme="emerald"] .btn-primary:hover {
+  box-shadow: 0 6px 20px rgba(16,185,129,0.5);
 }
 
 /* ── Flash Sale Banner ── */

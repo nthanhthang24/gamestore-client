@@ -675,11 +675,13 @@ const AdminSettingsPage = () => {
           </div>
           <div style={{ display:'flex', gap:10, flexWrap:'wrap' }}>
             {[
-              { name:'🌊 Cyber Blue', accent:'#00d4ff', accent2:'#ff6b35', bg:'#0a0e1a', card:'#131929', gold:'#ffd700' },
-              { name:'💜 Neon Purple', accent:'#a855f7', accent2:'#ec4899', bg:'#0d0a1a', card:'#16102a', gold:'#ffd700' },
-              { name:'🟢 Matrix Green', accent:'#00ff88', accent2:'#00cc6a', bg:'#060f0a', card:'#0d1a12', gold:'#88ff00' },
-              { name:'🔴 Crimson Dark', accent:'#ff4757', accent2:'#ff6b35', bg:'#0f0a0a', card:'#1a1010', gold:'#ffd700' },
-              { name:'☀️ Light Mode', accent:'#2563eb', accent2:'#f59e0b', bg:'#f8fafc', card:'#ffffff', gold:'#d97706' },
+              { name:'🌊 Cyber Blue',    accent:'#00d4ff', accent2:'#ff6b35', bg:'#0a0e1a', card:'#131929', gold:'#ffd700' },
+              { name:'💜 Violet Premium', accent:'#a855f7', accent2:'#ec4899', bg:'#0d0b14', card:'#160f2a', gold:'#f0abfc' },
+              { name:'🔷 Indigo Clean',   accent:'#6366f1', accent2:'#a855f7', bg:'#0c0f14', card:'#141820', gold:'#fbbf24' },
+              { name:'💚 Emerald Dark',   accent:'#10b981', accent2:'#06b6d4', bg:'#080f0e', card:'#0f1a18', gold:'#a3e635' },
+              { name:'🟢 Matrix Green',   accent:'#00ff88', accent2:'#00cc6a', bg:'#060f0a', card:'#0d1a12', gold:'#88ff00' },
+              { name:'🔴 Crimson Dark',   accent:'#ff4757', accent2:'#ff6b35', bg:'#0f0a0a', card:'#1a1010', gold:'#ffd700' },
+              { name:'☀️ Light Mode',    accent:'#2563eb', accent2:'#f59e0b', bg:'#f8fafc', card:'#ffffff', gold:'#d97706' },
             ].map(preset => {
               // ✅ FIX: highlight the active preset
               const isActive =
@@ -688,14 +690,35 @@ const AdminSettingsPage = () => {
                 (settings.themeBgPrimary || '#0a0e1a').toLowerCase() === preset.bg.toLowerCase();
               return (
                 <button key={preset.name}
-                  onClick={() => setSettings(s => ({
-                    ...s,
-                    themeAccent:    preset.accent,
-                    themeAccent2:   preset.accent2,
-                    themeBgPrimary: preset.bg,
-                    themeBgCard:    preset.card,
-                    themeGold:      preset.gold,
-                  }))}
+                  onClick={() => {
+                    setSettings(s => ({
+                      ...s,
+                      themeAccent:    preset.accent,
+                      themeAccent2:   preset.accent2,
+                      themeBgPrimary: preset.bg,
+                      themeBgCard:    preset.card,
+                      themeGold:      preset.gold,
+                    }));
+                    // Live preview: apply data-theme instantly without saving
+                    const bg = preset.bg.toLowerCase();
+                    const ac = preset.accent.toLowerCase();
+                    let t = '';
+                    if (bg === '#0d0b14' && ac === '#a855f7') t = 'violet';
+                    else if (bg === '#0c0f14' && ac === '#6366f1') t = 'indigo';
+                    else if (bg === '#080f0e' && ac === '#10b981') t = 'emerald';
+                    else if (bg === '#f8fafc' || bg === '#f0f2f5') t = 'light';
+                    if (t) document.documentElement.setAttribute('data-theme', t);
+                    else document.documentElement.removeAttribute('data-theme');
+                    // Also apply CSS vars live
+                    const root = document.documentElement;
+                    const toRgba = (h, a) => { const r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16); return `rgba(${r},${g},${b},${a})`; };
+                    root.style.setProperty('--accent', preset.accent);
+                    root.style.setProperty('--accent-dim', toRgba(preset.accent, 0.15));
+                    root.style.setProperty('--accent-glow', toRgba(preset.accent, 0.4));
+                    root.style.setProperty('--bg-primary', preset.bg);
+                    root.style.setProperty('--bg-card', preset.card);
+                    root.style.setProperty('--gold', preset.gold);
+                  }}
                   style={{
                     padding:'8px 14px', borderRadius:8, cursor:'pointer', fontSize:12, fontWeight:700,
                     border: isActive ? `2px solid ${preset.accent}` : '1px solid var(--border)',
@@ -1511,6 +1534,16 @@ const AppContent = () => {
               safeSet('--gold',     h);
               safeSet('--gold-dim', hexToRgba(h, 0.15));
             }
+            // Apply data-theme attribute for CSS preset themes (violet/indigo/emerald/light)
+            const bg = (d.themeBgPrimary || '').toLowerCase();
+            const ac = (d.themeAccent   || '').toLowerCase();
+            let themeAttr = '';
+            if (bg === '#0d0b14' && ac === '#a855f7') themeAttr = 'violet';
+            else if (bg === '#0c0f14' && ac === '#6366f1') themeAttr = 'indigo';
+            else if (bg === '#080f0e' && ac === '#10b981') themeAttr = 'emerald';
+            else if (bg === '#f8fafc' || bg === '#f0f2f5') themeAttr = 'light';
+            if (themeAttr) document.documentElement.setAttribute('data-theme', themeAttr);
+            else document.documentElement.removeAttribute('data-theme');
           }
           setMaintenanceChecked(true);
         }, () => setMaintenanceChecked(true));
