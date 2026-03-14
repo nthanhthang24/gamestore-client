@@ -530,10 +530,6 @@ const AdminSettingsPage = () => {
         </Row>
       </div>
 
-      {/* ── Hoa hồng Giới thiệu ─────────────────────────────── */}
-      <div className="card" style={{ padding: 24, marginBottom: 20 }}>
-
-
       {/* ── Theme & Màu sắc ─────────────────────────────────── */}
       <div className="card" style={{ padding: 24 }}>
         <h3 style={{ marginBottom: 20, color: 'var(--accent)' }}>🎨 Theme & Màu sắc</h3>
