@@ -290,6 +290,9 @@ const Navbar = ({ cartCount = 0 }) => {
                     <Link to="/orders" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
                       <ShoppingCart size={15} /> Đơn hàng
                     </Link>
+                    <Link to="/topup" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
+                      <Wallet size={15} style={{color:'var(--accent)'}}/> Nạp tiền
+                    </Link>
                     <Link to="/wishlist" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
                       <Heart size={15} style={{color:'#ff4757'}}/> Yêu thích
                     </Link>
@@ -366,6 +369,7 @@ const Navbar = ({ cartCount = 0 }) => {
             <div style={{ borderTop: '1px solid var(--border)', paddingTop: 8, marginTop: 8 }}>
               <Link to="/profile" className="mobile-link" onClick={() => setMenuOpen(false)}>👤 Hồ sơ</Link>
               <Link to="/orders" className="mobile-link" onClick={() => setMenuOpen(false)}>📦 Đơn hàng</Link>
+              <Link to="/topup" className="mobile-link" onClick={() => setMenuOpen(false)}>💰 Nạp tiền</Link>
               <Link to="/notifications" className="mobile-link" onClick={() => setMenuOpen(false)}>
                 🔔 Thông báo{unreadCount > 0 && <span style={{marginLeft:6,background:'var(--accent)',color:'#000',borderRadius:'50%',padding:'1px 6px',fontSize:11,fontWeight:700}}>{unreadCount}</span>}
               </Link>
