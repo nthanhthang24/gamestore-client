@@ -465,7 +465,7 @@ const CartPage = ({ cart, setCart }) => {
                 const hasSale  = group.salePrice && group.salePrice < group.price;
                 const unitPrice = hasSale ? group.salePrice : group.price;
                 const groupTotal = unitPrice * group.qty;
-                const maxStock = (group.soldCount || 0) >= 1 ? 0 : 1;
+                const maxStock = (group.quantity || 1) - (group.soldCount || 0);
                 const canIncrease = group.qty < maxStock;
 
                 return (
