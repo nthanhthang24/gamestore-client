@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useSiteSettings } from '../../context/SiteSettingsContext';
-import { Tag, Sword, ShoppingCart, Bell, User, LogOut, Settings, Shield, Sun, Moon,
+import { Tag, Sword, ShoppingCart, Bell, User, LogOut, Settings, Shield,
   Menu, X, Search, Zap, ChevronDown, Wallet, Heart, Gift,
   Info, CheckCircle, AlertTriangle
 } from 'lucide-react';
@@ -30,7 +30,6 @@ const Navbar = ({ cartCount = 0 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [openTickets, setOpenTickets] = useState(0);
   const [bellOpen, setBellOpen] = useState(false);
-  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
 
   React.useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -166,9 +165,6 @@ const Navbar = ({ cartCount = 0 }) => {
         {/* Right actions */}
         <div className="navbar-actions">
           {/* Theme toggle */}
-          <button className="nav-icon-btn" onClick={toggleTheme} title={theme==='dark'?'Chuyển Light':'Chuyển Dark'}>
-            {theme === 'dark' ? <Sun size={18}/> : <Moon size={18}/>}
-          </button>
 
           {/* Search */}
           <button className="nav-icon-btn" onClick={() => setSearchOpen(!searchOpen)}>
