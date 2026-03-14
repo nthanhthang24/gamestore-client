@@ -2,6 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useSiteSettings } from '../../context/SiteSettingsContext';
 import { Tag, Sword, ShoppingCart, Bell, User, LogOut, Settings, Shield, Sun, Moon,
   Menu, X, Search, Zap, ChevronDown, Wallet, Heart, Gift,
   Info, CheckCircle, AlertTriangle
@@ -20,6 +21,7 @@ const TYPE_ICON = {
 
 const Navbar = ({ cartCount = 0 }) => {
   const { currentUser, userProfile, logout } = useAuth();
+  const { siteName } = useSiteSettings();
   const navigate = useNavigate();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -136,7 +138,7 @@ const Navbar = ({ cartCount = 0 }) => {
         {/* Logo */}
         <Link to="/" className="navbar-logo">
           <div className="logo-icon"><Zap size={20} /></div>
-          <span className="logo-text">GAME<span className="logo-accent">STORE</span></span>
+          <span className="logo-text">{siteName}</span>
         </Link>
 
         {/* Nav links desktop */}

@@ -11,6 +11,7 @@ import './TopupPage.css';
 const SERVER_URL = process.env.REACT_APP_SERVER_URL || 'https://gamestore-server-i20i.onrender.com';
 const AMOUNTS = [50000, 100000, 200000, 500000, 1000000, 2000000];
 const DEFAULT_MIN_TOPUP = 10000;
+const DEFAULT_MAX_TOPUP = 50000000;
 
 const statusConfig = {
   pending:  { label: 'Đang chờ',   badge: 'badge-gold',    icon: <Clock size={13} /> },
@@ -102,6 +103,7 @@ const TopupPage = () => {
   const [copied, setCopied] = useState('');
   const [activeTab, setActiveTab] = useState('topup');
   const [minTopup, setMinTopup] = useState(DEFAULT_MIN_TOPUP);
+  const [maxTopup, setMaxTopup] = useState(DEFAULT_MAX_TOPUP);
   const [loadingSecs, setLoadingSecs] = useState(0);
   const loadingTimerRef = React.useRef(null);
 
@@ -111,6 +113,7 @@ const TopupPage = () => {
       import('../../firebase/config').then(({ db }) =>
         getDoc(doc(db, 'settings', 'global')).then(snap => {
           if (snap.exists() && snap.data().minTopupAmount) setMinTopup(snap.data().minTopupAmount);
+          if (snap.exists() && snap.data().maxTopupAmount) setMaxTopup(snap.data().maxTopupAmount);
         }).catch(() => {})
       )
     );
@@ -191,7 +194,7 @@ const TopupPage = () => {
     const amt = Number(amount);
     if (!amt || amt < minTopup) { toast.error(`Số tiền tối thiểu ${minTopup.toLocaleString('vi-VN')}đ`); return; }
     // ✅ FIX: Giới hạn số lần tạo QR (max 50 triệu/lần nạp)
-    if (amt > 50_000_000) { toast.error('Số tiền tối đa mỗi lần nạp là 50,000,000đ'); return; }
+    if (amt > maxTopup) { toast.error(`Số tiền tối đa mỗi lần nạp là ${maxTopup.toLocaleString('vi-VN')}đ`); return; }
     setLoadingSecs(0);
     if (loadingTimerRef.current) clearInterval(loadingTimerRef.current);
     loadingTimerRef.current = setInterval(() => setLoadingSecs(s => s + 1), 1000);

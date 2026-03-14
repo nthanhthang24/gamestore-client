@@ -18,6 +18,7 @@ function useServerWakeup() {
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { SiteSettingsProvider, useSiteSettings } from './context/SiteSettingsContext';
 import Navbar from './components/shared/Navbar';
 import HomePage from './pages/user/HomePage';
 import ShopPage from './pages/user/ShopPage';
@@ -102,13 +103,14 @@ const ProtectedRoute = ({ children, adminOnly = false }) => {
 };
 
 const Footer = () => {
+  const { siteName } = useSiteSettings();
   return (
   <footer style={{ background: 'var(--bg-secondary)', borderTop: '1px solid var(--border)', padding: '40px 0', marginTop: '60px' }}>
     <div className="container" style={{ textAlign: 'center' }}>
       <div style={{ fontFamily: 'Rajdhani', fontSize: '22px', fontWeight: 700, marginBottom: '8px' }}>
-        GAME<span style={{ color: 'var(--accent)' }}>STORE</span>
+        {siteName}
       </div>
-      <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>© {new Date().getFullYear()} GameStore VN. Nền tảng mua bán tài khoản game uy tín hàng đầu.</p>
+      <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>© {new Date().getFullYear()} {siteName}. Nền tảng mua bán tài khoản game uy tín hàng đầu.</p>
       <div style={{ display: 'flex', gap: '24px', justifyContent: 'center', marginTop: '16px' }}>
         <Link to="/support" style={{ color: 'var(--text-muted)', fontSize: '13px', textDecoration: 'none' }}>Liên hệ</Link>
         <Link to="/support" style={{ color: 'var(--text-muted)', fontSize: '13px', textDecoration: 'none' }}>FAQ</Link>
@@ -963,6 +965,7 @@ const UserOrdersPage = () => {
 
 const SupportPage = () => {
   const { currentUser, userProfile } = useAuth();
+  const { supportEmail, siteName } = useSiteSettings();
   const navigate = useNavigate();
   const [form, setForm] = React.useState({ type: 'warranty', orderId: '', description: '' });
   const [submitting, setSubmitting] = React.useState(false);
@@ -1036,7 +1039,7 @@ const SupportPage = () => {
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 32 }}>
           {[
-            { icon: '📧', title: 'Email', desc: 'support@gamestore.vn' },
+            { icon: '📧', title: 'Email', desc: supportEmail },
             { icon: '📱', title: 'Zalo', desc: 'Nhắn qua Zalo OA' },
             { icon: '🕐', title: 'Phản hồi', desc: 'Trong vòng 24 giờ' },
           ].map((item, i) => (
@@ -1135,51 +1138,59 @@ const SupportPage = () => {
 };
 
 
-const TermsPage = () => (
+const TermsPage = () => {
+  const { siteName, supportEmail } = useSiteSettings();
+  const sections = [
+    ['1. Giới thiệu', `${siteName} là nền tảng mua bán tài khoản game trực tuyến. Khi sử dụng dịch vụ, bạn đồng ý tuân thủ các điều khoản dưới đây.`],
+    ['2. Tài khoản người dùng', `Bạn có trách nhiệm bảo mật thông tin đăng nhập. ${siteName} không chịu trách nhiệm về việc mất mát do lộ thông tin từ phía người dùng.`],
+    ['3. Giao dịch & Thanh toán', 'Tất cả giao dịch được thực hiện qua hệ thống nạp điểm. Mỗi giao dịch mua hàng là không hoàn tác sau khi thông tin tài khoản đã được giao. Bảo hành 24h sau mua trong trường hợp tài khoản lỗi do lỗi của người bán.'],
+    ['4. Nội dung & Tài khoản game', 'Chúng tôi không đảm bảo rằng tài khoản game được mua sẽ hoạt động vĩnh viễn do phụ thuộc vào nhà phát hành game. Người mua nên đổi mật khẩu ngay sau khi nhận tài khoản.'],
+    ['5. Cấm lạm dụng', 'Nghiêm cấm: gian lận, chargeback giả, tạo nhiều tài khoản để lạm dụng khuyến mãi, sử dụng dịch vụ cho mục đích bất hợp pháp.'],
+    ['6. Giới hạn trách nhiệm', `${siteName} không chịu trách nhiệm cho bất kỳ thiệt hại gián tiếp nào phát sinh từ việc sử dụng dịch vụ.`],
+    ['7. Thay đổi điều khoản', 'Chúng tôi có quyền thay đổi điều khoản bất kỳ lúc nào. Việc tiếp tục sử dụng sau khi thay đổi đồng nghĩa bạn chấp nhận điều khoản mới.'],
+    ['8. Liên hệ', `Mọi thắc mắc về điều khoản, vui lòng liên hệ qua trang Hỗ trợ hoặc email ${supportEmail}`],
+  ];
+  return (
   <div className="page-wrapper" style={{padding:'40px 0 80px'}}>
     <div className="container" style={{maxWidth:760}}>
       <h1 style={{fontFamily:'Rajdhani',fontSize:32,fontWeight:700,marginBottom:8}}>Điều khoản sử dụng</h1>
       <p style={{color:'var(--text-muted)',marginBottom:32}}>Cập nhật lần cuối: {new Date().toLocaleDateString('vi-VN')}</p>
-      {[
-        ['1. Giới thiệu', 'GameStore VN là nền tảng mua bán tài khoản game trực tuyến. Khi sử dụng dịch vụ, bạn đồng ý tuân thủ các điều khoản dưới đây.'],
-        ['2. Tài khoản người dùng', 'Bạn có trách nhiệm bảo mật thông tin đăng nhập. GameStore VN không chịu trách nhiệm về việc mất mát do lộ thông tin từ phía người dùng.'],
-        ['3. Giao dịch & Thanh toán', 'Tất cả giao dịch được thực hiện qua hệ thống nạp điểm. Mỗi giao dịch mua hàng là không hoàn tác sau khi thông tin tài khoản đã được giao. Bảo hành 24h sau mua trong trường hợp tài khoản lỗi do lỗi của người bán.'],
-        ['4. Nội dung & Tài khoản game', 'Chúng tôi không đảm bảo rằng tài khoản game được mua sẽ hoạt động vĩnh viễn do phụ thuộc vào nhà phát hành game. Người mua nên đổi mật khẩu ngay sau khi nhận tài khoản.'],
-        ['5. Cấm lạm dụng', 'Nghiêm cấm: gian lận, chargeback giả, tạo nhiều tài khoản để lạm dụng khuyến mãi, sử dụng dịch vụ cho mục đích bất hợp pháp.'],
-        ['6. Giới hạn trách nhiệm', 'GameStore VN không chịu trách nhiệm cho bất kỳ thiệt hại gián tiếp nào phát sinh từ việc sử dụng dịch vụ.'],
-        ['7. Thay đổi điều khoản', 'Chúng tôi có quyền thay đổi điều khoản bất kỳ lúc nào. Việc tiếp tục sử dụng sau khi thay đổi đồng nghĩa bạn chấp nhận điều khoản mới.'],
-        ['8. Liên hệ', 'Mọi thắc mắc về điều khoản, vui lòng liên hệ qua trang Hỗ trợ hoặc email support@gamestore.vn'],
-      ].map(([title, content]) => (
+      {sections.map(([title, text]) => (
         <div key={title} style={{marginBottom:24}}>
           <h3 style={{fontFamily:'Rajdhani',fontSize:18,fontWeight:700,color:'var(--accent)',marginBottom:8}}>{title}</h3>
-          <p style={{color:'var(--text-secondary)',lineHeight:1.8,fontSize:14}}>{content}</p>
+          <p style={{color:'var(--text-secondary)',lineHeight:1.8,fontSize:14}}>{text}</p>
         </div>
       ))}
     </div>
   </div>
-);
+  );
+};
 
-const PrivacyPage = () => (
+const PrivacyPage = () => {
+  const { supportEmail } = useSiteSettings();
+  const sections = [
+    ['1. Thông tin chúng tôi thu thập', 'Chúng tôi thu thập: địa chỉ email, tên hiển thị, lịch sử giao dịch, địa chỉ IP. Chúng tôi KHÔNG thu thập thông tin thẻ tín dụng (thanh toán qua ngân hàng trực tiếp).'],
+    ['2. Mục đích sử dụng', 'Thông tin được dùng để: xác thực danh tính, xử lý giao dịch, gửi thông báo đơn hàng, phòng chống gian lận.'],
+    ['3. Bảo vệ dữ liệu', 'Dữ liệu được lưu trữ trên Firebase (Google Cloud) với mã hóa at-rest và in-transit. Chúng tôi không bán dữ liệu cho bên thứ ba.'],
+    ['4. Cookie & Tracking', 'Chúng tôi sử dụng localStorage để lưu giỏ hàng và phiên đăng nhập. Không có cookie theo dõi quảng cáo.'],
+    ['5. Quyền của bạn', `Bạn có quyền: yêu cầu xem, sửa, hoặc xóa dữ liệu của mình. Liên hệ ${supportEmail} để thực hiện yêu cầu.`],
+    ['6. Liên hệ', `Nếu có câu hỏi về chính sách bảo mật, vui lòng liên hệ: ${supportEmail}`],
+  ];
+  return (
   <div className="page-wrapper" style={{padding:'40px 0 80px'}}>
     <div className="container" style={{maxWidth:760}}>
       <h1 style={{fontFamily:'Rajdhani',fontSize:32,fontWeight:700,marginBottom:8}}>Chính sách Bảo mật</h1>
       <p style={{color:'var(--text-muted)',marginBottom:32}}>Cập nhật lần cuối: {new Date().toLocaleDateString('vi-VN')}</p>
-      {[
-        ['1. Thông tin chúng tôi thu thập', 'Chúng tôi thu thập: địa chỉ email, tên hiển thị, lịch sử giao dịch, địa chỉ IP. Chúng tôi KHÔNG thu thập thông tin thẻ tín dụng (thanh toán qua ngân hàng trực tiếp).'],
-        ['2. Mục đích sử dụng', 'Thông tin được dùng để: xác thực danh tính, xử lý giao dịch, gửi thông báo đơn hàng, phòng chống gian lận.'],
-        ['3. Bảo vệ dữ liệu', 'Dữ liệu được lưu trữ trên Firebase (Google Cloud) với mã hóa at-rest và in-transit. Chúng tôi không bán dữ liệu cho bên thứ ba.'],
-        ['4. Cookie & Tracking', 'Chúng tôi sử dụng localStorage để lưu giỏ hàng và phiên đăng nhập. Không có cookie theo dõi quảng cáo.'],
-        ['5. Quyền của bạn', 'Bạn có quyền: yêu cầu xem, sửa, hoặc xóa dữ liệu của mình. Liên hệ support@gamestore.vn để thực hiện yêu cầu.'],
-        ['6. Liên hệ', 'Nếu có câu hỏi về chính sách bảo mật, vui lòng liên hệ: support@gamestore.vn'],
-      ].map(([title, content]) => (
+      {sections.map(([title, text]) => (
         <div key={title} style={{marginBottom:24}}>
           <h3 style={{fontFamily:'Rajdhani',fontSize:18,fontWeight:700,color:'var(--accent)',marginBottom:8}}>{title}</h3>
-          <p style={{color:'var(--text-secondary)',lineHeight:1.8,fontSize:14}}>{content}</p>
+          <p style={{color:'var(--text-secondary)',lineHeight:1.8,fontSize:14}}>{text}</p>
         </div>
       ))}
     </div>
   </div>
-);
+  );
+};
 
 const ProfilePage = () => {
   const { currentUser, userProfile, fetchUserProfile } = useAuth();
@@ -1433,12 +1444,14 @@ const UserLayout = ({ cart, addToCart, setCart }) => (
 
 const AppContent = () => {
   useServerWakeup(); // ✅ Ping server ngay khi app load → tránh delay 50s
+  const { siteName, supportEmail } = useSiteSettings();
   const { userProfile: _up } = useAuth();
 
   // ✅ Maintenance mode + settings: đọc từ Firestore settings/global
   const [maintenance, setMaintenance] = useState(false);
   const [maintenanceChecked, setMaintenanceChecked] = useState(false);
   const [maxCartItems, setMaxCartItems] = useState(100); // default; overridden by settings
+  const [maxTopupAmount, setMaxTopupAmount] = useState(50000000);
   React.useEffect(() => {
     import('firebase/firestore').then(({ doc, onSnapshot }) =>
       import('./firebase/config').then(({ db }) => {
@@ -1446,7 +1459,8 @@ const AppContent = () => {
           if (snap.exists()) {
             const d = snap.data();
             setMaintenance(d.maintenanceMode || false);
-            if (d.maxCartItems) setMaxCartItems(d.maxCartItems);
+            if (d.maxCartItems)      setMaxCartItems(d.maxCartItems);
+            if (d.maxTopupAmount)    setMaxTopupAmount(d.maxTopupAmount);
 
             // ── Apply theme CSS variables dynamically ──────────────────
             // Admin can change brand colors from settings panel — applied globally
@@ -1653,12 +1667,12 @@ const AppContent = () => {
           Đang bảo trì
         </h1>
         <p style={{ color:'var(--text-muted)', fontSize:16, maxWidth:480, lineHeight:1.7 }}>
-          GameStore VN đang được nâng cấp để phục vụ bạn tốt hơn.<br/>
+          {siteName} đang được nâng cấp để phục vụ bạn tốt hơn.<br/>
           Vui lòng quay lại sau. Xin lỗi vì sự bất tiện này!
         </p>
         <div style={{ fontSize:13, color:'var(--text-muted)', padding:'12px 24px', borderRadius:8,
           border:'1px solid var(--border)', background:'var(--bg-card)' }}>
-          📧 Liên hệ: support@gamestore.vn
+          📧 Liên hệ: {supportEmail}
         </div>
       </div>
     );
@@ -1697,5 +1711,5 @@ const AppContent = () => {
   );
 };
 
-const App = () => <AuthProvider><AppContent /></AuthProvider>;
+const App = () => <AuthProvider><SiteSettingsProvider><AppContent /></SiteSettingsProvider></AuthProvider>;
 export default App;
