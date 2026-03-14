@@ -53,7 +53,6 @@ const AdminTopups = () => {
 
   const fetchTopups = () => {}; // no-op: replaced by onSnapshot
 
-  const REFERRAL_BONUS = 20000; // 20k cho người giới thiệu khi bạn bè nạp lần đầu
 
   const handleApprove = async (topup) => {
     if (!(await confirm(`Duyệt nạp ${topup.amount?.toLocaleString('vi-VN')}đ cho ${topup.userEmail}?`, 'primary'))) return;
@@ -91,62 +90,6 @@ const AdminTopups = () => {
       toast.success(`Đã duyệt +${approvedAmount?.toLocaleString('vi-VN')}đ cho ${topup.userEmail}`, {
         style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' }
       });
-
-      // ✅ Bước 2: Kiểm tra referral — chỉ credit lần đầu nạp tiền
-      // Chạy sau transaction chính để không block approve nếu lỗi referral
-      try {
-        const refSnap = await getDocs(
-          query(collection(db, 'referrals'),
-            where('newUserId', '==', topup.userId),
-            where('credited', '==', false)
-          )
-        );
-        if (!refSnap.empty) {
-          const refDoc = refSnap.docs[0];
-          const refData = refDoc.data();
-
-          // Tìm referrer theo refCode (uid slice đầu 8 ký tự)
-          // refCode = referrer's uid.slice(0,8).toUpperCase()
-          // → tìm user có uid bắt đầu bằng refCode (lowercase)
-          const refCode = refData.refCode?.toLowerCase();
-          if (refCode) {
-            // Query user bằng uid prefix — dùng getDocs all users là không scalable
-            // Lưu referrerId trong referral record khi đăng ký là tốt hơn
-            // Hiện tại: nếu referral record có referrerId thì dùng, không thì skip
-            const referrerId = refData.referrerId; // có thể undefined nếu record cũ
-            if (referrerId) {
-              await runTransaction(db, async (tx) => {
-                const referralRef = doc(db, 'referrals', refDoc.id);
-                const referralSnap = await tx.get(referralRef);
-                // Double-check vẫn chưa credited (tránh race condition)
-                if (referralSnap.exists() && referralSnap.data().credited === false) {
-                  const referrerRef = doc(db, 'users', referrerId);
-                  // FIX: dùng increment() — tránh race condition double bonus
-                  // (2 admin duyệt cùng lúc cả 2 đọc balance cũ → double credit)
-                  tx.update(referrerRef, {
-                    balance: increment(REFERRAL_BONUS),
-                    updatedAt: serverTimestamp(),
-                  });
-                  tx.update(referralRef, { credited: true, creditedAt: serverTimestamp() });
-                }
-              });
-              toast.success(`🎁 Referral: +${REFERRAL_BONUS.toLocaleString('vi-VN')}đ cho người giới thiệu`, {
-                style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' },
-                duration: 3000,
-              });
-            } else {
-              // Fallback: mark credited to prevent re-processing, log for manual review
-              await updateDoc(doc(db, 'referrals', refDoc.id), {
-                credited: true, creditedAt: serverTimestamp(),
-                creditNote: 'referrerId missing — manual review needed',
-              });
-            }
-          }
-        }
-      } catch (refErr) {
-        // Referral error does NOT fail the approval — just log
-        console.warn('Referral credit error (non-critical):', refErr.message);
-      }
 
     } catch (err) {
       toast.error('Lỗi: ' + err.message);

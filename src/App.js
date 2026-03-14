@@ -38,7 +38,6 @@ import AdminFlashSales from './pages/admin/AdminFlashSales';
 import AdminBulkImport from './pages/admin/AdminBulkImport';
 import AdminRatings from './pages/admin/AdminRatings';
 import WishlistPage from './pages/user/WishlistPage';
-import ReferralPage from './pages/user/ReferralPage';
 import AdminTickets from './pages/admin/AdminTickets';
 import AdminAuditLog from './pages/admin/AdminAuditLog';
 import AdminNotifications from './pages/admin/AdminNotifications';
@@ -533,35 +532,7 @@ const AdminSettingsPage = () => {
 
       {/* ── Hoa hồng Giới thiệu ─────────────────────────────── */}
       <div className="card" style={{ padding: 24, marginBottom: 20 }}>
-        <h3 style={{ marginBottom: 20, color: 'var(--accent)' }}>🎁 Cấu hình Giới thiệu bạn bè</h3>
-        <Row label="Hoa hồng người giới thiệu (%)" desc="% tiền nạp lần đầu trả cho người giới thiệu (ví dụ: 2 = 2%)">
-          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-            <input type="number" className="form-input" style={{ width:100 }}
-              value={settings.referralCommissionPct ?? 2}
-              onChange={e => setSettings(s => ({ ...s, referralCommissionPct: Math.min(50, Math.max(0, Number(e.target.value))) }))}
-              min="0" max="50" step="0.5" />
-            <span style={{ fontSize:13, color:'var(--text-muted)' }}>%</span>
-          </div>
-        </Row>
-        <Row label="Nạp tối thiểu để kích hoạt hoa hồng" desc="Lần nạp đầu phải ≥ mức này mới tính hoa hồng">
-          <input type="number" className="form-input" style={{ width:160 }}
-            value={settings.referralMinTopup ?? 50000}
-            onChange={e => setSettings(s => ({ ...s, referralMinTopup: Math.max(0, Number(e.target.value)) }))}
-            min="0" step="1000" />
-        </Row>
-        <Row label="Thưởng cho người được giới thiệu" desc="Người mới nhận thêm khi đăng ký qua link">
-          <input type="number" className="form-input" style={{ width:160 }}
-            value={settings.referralNewUserBonus ?? 10000}
-            onChange={e => setSettings(s => ({ ...s, referralNewUserBonus: Math.max(0, Number(e.target.value)) }))}
-            min="0" step="1000" />
-        </Row>
-        <div style={{ marginTop:12, padding:'10px 14px', borderRadius:8, background:'var(--accent-dim)', fontSize:12, color:'var(--text-secondary)' }}>
-          💡 Ví dụ: bạn bè nạp <strong>200.000đ</strong> lần đầu → người giới thiệu nhận{' '}
-          <strong style={{ color:'var(--gold)' }}>
-            {Math.round((settings.referralCommissionPct ?? 2) / 100 * 200000).toLocaleString('vi-VN')}đ
-          </strong> (= {settings.referralCommissionPct ?? 2}%)
-        </div>
-      </div>
+
 
       {/* ── Theme & Màu sắc ─────────────────────────────────── */}
       <div className="card" style={{ padding: 24 }}>
@@ -1457,7 +1428,6 @@ const UserLayout = ({ cart, addToCart, setCart }) => (
       <Route path="/privacy" element={<PrivacyPage />} />
       <Route path="/terms" element={<TermsPage />} />
       <Route path="/wishlist" element={<ProtectedRoute><WishlistPage onAddToCart={addToCart} /></ProtectedRoute>} />
-      <Route path="/referral" element={<ProtectedRoute><ReferralPage /></ProtectedRoute>} />
       <Route path="/notifications" element={<ProtectedRoute><NotificationsPage /></ProtectedRoute>} />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>

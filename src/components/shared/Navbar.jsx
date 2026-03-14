@@ -296,9 +296,7 @@ const Navbar = ({ cartCount = 0 }) => {
                     <Link to="/vouchers" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
                       <Tag size={15} /> Voucher của tôi
                     </Link>
-                    <Link to="/referral" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
-                      <Gift size={15} style={{color:'var(--gold)'}}/> Giới thiệu bạn bè
-                    </Link>
+
                     <Link to="/services" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
                       <Sword size={15} /> Dịch vụ game
                     </Link>
@@ -372,7 +370,6 @@ const Navbar = ({ cartCount = 0 }) => {
                 🔔 Thông báo{unreadCount > 0 && <span style={{marginLeft:6,background:'var(--accent)',color:'#000',borderRadius:'50%',padding:'1px 6px',fontSize:11,fontWeight:700}}>{unreadCount}</span>}
               </Link>
               <Link to="/wishlist" className="mobile-link" onClick={() => setMenuOpen(false)}>❤️ Yêu thích</Link>
-              <Link to="/referral" className="mobile-link" onClick={() => setMenuOpen(false)}>🎁 Giới thiệu bạn bè</Link>
               <Link to="/vouchers" className="mobile-link" onClick={() => setMenuOpen(false)}>🎫 Voucher</Link>
               <button className="mobile-link danger" style={{ width:'100%', textAlign:'left', background:'none', border:'none', cursor:'pointer', color:'var(--danger)' }} onClick={handleLogout}>🚪 Đăng xuất</button>
             </div>

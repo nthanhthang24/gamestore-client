@@ -174,15 +174,13 @@ export const RegisterPage = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  // Read ?ref= from URL
-  const urlRefCode = searchParams.get('ref') || '';
 
   // Nếu đã đăng nhập → redirect về trang chủ
   React.useEffect(() => {
     if (currentUser) navigate('/', { replace: true });
   }, [currentUser, navigate]); // ✅ FIX T1-01
 
-  const [form, setForm] = useState({ displayName: '', email: '', password: '', confirm: '', refCode: urlRefCode });
+  const [form, setForm] = useState({ displayName: '', email: '', password: '', confirm: '' });
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -196,55 +194,9 @@ export const RegisterPage = () => {
     if (form.password.length < 6) { setError('Mật khẩu phải có ít nhất 6 ký tự'); return; }
     setLoading(true);
     try {
-      // Load bonus amount from settings (fallback to 10000)
-      let NEW_USER_BONUS = 10000;
-      try {
-        const settingsSnap = await getDocs(query(collection(db, 'settings'), where('__name__', '==', 'global')));
-        if (!settingsSnap.empty) {
-          const v = settingsSnap.docs[0].data().referralNewUserBonus;
-          if (v !== undefined && v >= 0) NEW_USER_BONUS = v;
-        }
-      } catch(_) {}
+      await register(form.email, form.password, form.displayName);
 
-      const newUser = await register(form.email, form.password, form.displayName);
-      const uid = newUser?.user?.uid; // UserCredential.user.uid
-
-      // ── Referral handling ──────────────────────────────────
-      const refCode = form.refCode?.trim().toUpperCase();
-      if (refCode && uid) {
-        // Tìm referrer: uid của họ bắt đầu bằng refCode (lowercase)
-        // Firebase UID là 28 ký tự alphanumeric
-        const lowCode = refCode.toLowerCase();
-        let referrerId = null;
-        try {
-          const refUserSnap = await getDocs(
-            query(collection(db, 'users'),
-              where('uid', '>=', lowCode),
-              where('uid', '<=', lowCode + '\uf8ff')
-            )
-          );
-          // Lọc chính xác: uid phải bắt đầu bằng lowCode
-          const referrerDoc = refUserSnap.docs.find(d => d.data().uid?.startsWith(lowCode));
-          referrerId = referrerDoc ? referrerDoc.data().uid : null;
-        } catch (lookupErr) {
-          console.warn('Referrer lookup failed:', lookupErr.message);
-        }
-
-        // Ghi referral record (credited=false, chờ lần nạp tiền đầu)
-        // FIX 2025-I: Bonus 10k KHÔNG cộng từ client — Firestore rules chặn user
-        // tự tăng balance. Server webhook (sepay.js) tự động cộng khi bạn bè nạp tiền.
-        addDoc(collection(db, 'referrals'), {
-          refCode,
-          referrerId,
-          newUserEmail: form.email,
-          newUserId:    uid,
-          credited:     false,
-          createdAt:    serverTimestamp(),
-        }).catch(() => {});
-      }
-      // ─────────────────────────────────────────────────────────
-
-      toast.success('Đăng ký thành công! Chào mừng bạn!' + (refCode ? ' Nhận ngay 10.000đ!' : ''),
+      toast.success('Đăng ký thành công! Chào mừng bạn!',
         { style: { background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' } }
       );
       navigate('/');
@@ -302,19 +254,7 @@ export const RegisterPage = () => {
               <input type="password" name="confirm" className="form-input" style={{ paddingLeft: '40px' }} placeholder="Nhập lại mật khẩu" value={form.confirm} onChange={handleChange} required />
             </div>
           </div>
-          <div className="form-group">
-            <label className="form-label">
-              Mã giới thiệu
-              {urlRefCode && <span style={{ color:'var(--success)', fontSize:12, marginLeft:8 }}>✅ Đã áp dụng</span>}
-              <span style={{ color:'var(--text-muted)', fontWeight:400 }}> (nếu có — nhận 10.000đ)</span>
-            </label>
-            <input type="text" name="refCode" className="form-input"
-              placeholder="Nhập mã giới thiệu (8 ký tự)" value={form.refCode}
-              onChange={e => setForm({ ...form, refCode: e.target.value.toUpperCase() })}
-              onPaste={e => { e.preventDefault(); const t = (e.clipboardData.getData('text')||'').toUpperCase().slice(0,8); setForm({ ...form, refCode: t }); }}
-              maxLength={8}
-              style={{ textTransform:'uppercase', letterSpacing:'2px', fontFamily:'monospace' }} />
-          </div>
+
           <button type="submit" className="btn btn-primary w-full btn-lg" disabled={loading}>
             {loading ? 'Đang tạo tài khoản...' : 'Đăng ký'}
           </button>
