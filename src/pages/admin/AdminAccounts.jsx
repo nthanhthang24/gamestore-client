@@ -190,6 +190,7 @@ const AdminAccounts = () => {
                   <th>Game</th>
                   <th>Rank</th>
                   <th>Giá</th>
+                  <th>Slots</th>
                   <th>Trạng thái</th>
                   <th>Lượt xem</th>
                   <th>Thao tác</th>
@@ -219,6 +220,27 @@ const AdminAccounts = () => {
                     <td>{acc.rank || '-'}</td>
                     <td style={{ color: 'var(--accent)', fontWeight: 600 }}>{acc.price?.toLocaleString('vi-VN')}đ</td>
                     <td>
+                      {(() => {
+                        const qty  = acc.quantity  || 1;
+                        const sold = acc.soldCount || 0;
+                        const rem  = qty - sold;
+                        if (qty <= 1) return <span style={{color:'var(--text-muted)',fontSize:12}}>—</span>;
+                        return (
+                          <div style={{display:'flex',flexDirection:'column',gap:2}}>
+                            <span style={{fontFamily:'Rajdhani',fontWeight:700,fontSize:14,
+                              color: rem === 0 ? 'var(--danger)' : rem < qty * 0.2 ? 'var(--gold)' : 'var(--success)'}}>
+                              {sold}/{qty}
+                            </span>
+                            <div style={{width:60,height:4,borderRadius:2,background:'var(--border)',overflow:'hidden'}}>
+                              <div style={{height:'100%',borderRadius:2,width:`${Math.round(sold/qty*100)}%`,
+                                background: rem === 0 ? 'var(--danger)' : rem < qty * 0.2 ? 'var(--gold)' : 'var(--success)'
+                              }}/>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </td>
+                    <td>
                       <span className={`badge ${acc.status === 'available' ? 'badge-success' : 'badge-danger'}`}>
                         {acc.status === 'available' ? 'Còn hàng' : 'Đã bán'}
                       </span>
@@ -234,7 +256,7 @@ const AdminAccounts = () => {
                   </tr>
                 ))}
                 {filtered.length === 0 && (
-                  <tr><td colSpan="8" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>Không có dữ liệu</td></tr>
+                  <tr><td colSpan="9" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>Không có dữ liệu</td></tr>
                 )}
               </tbody>
             </table>
