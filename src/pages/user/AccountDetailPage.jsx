@@ -25,6 +25,7 @@ const AccountDetailPage = ({ onAddToCart }) => {
   const [activeTab, setActiveTab] = useState('info'); // 'info' | 'ratings'
   const [ratingCount, setRatingCount] = useState(null); // updated by RatingWidget via callback
   const { isWishlisted, toggle: toggleWishlist } = useWishlist(currentUser);
+  const [buyQty, setBuyQty] = useState(1);
   useSEO(account ? {
     title: account.title,
     description: `${account.gameType} · ${account.rank||''} · ${account.price?.toLocaleString('vi-VN')}đ — GameStore VN`,
@@ -57,9 +58,8 @@ const AccountDetailPage = ({ onAddToCart }) => {
   const images     = account.images || [];
   const quantity   = account.quantity   != null ? account.quantity   : 1;
   const soldCount  = account.soldCount  != null ? account.soldCount  : 0;
-  // 1 item = 1 combo bán 1 lần duy nhất — soldCount>=1 = hết hàng
-
-  const isSold     = account.status === 'sold' || soldCount >= 1;
+  const remaining  = quantity - soldCount; // slots còn lại
+  const isSold     = account.status === 'sold' || remaining <= 0;
 
   const salePrice = activeFlashSale ? getSalePrice(account.price, account.gameType) : null;
   const unitPrice = (activeFlashSale && salePrice && salePrice < account.price) ? salePrice : account.price;
@@ -67,11 +67,13 @@ const AccountDetailPage = ({ onAddToCart }) => {
   const handleAddToCart = (goToCart = false) => {
     if (!currentUser) { navigate('/login'); return; }
     if (isSold) return;
+    const qty = Math.min(buyQty, remaining);
     onAddToCart?.({
       ...account,
+      buyQty: qty,
       salePrice: (activeFlashSale && salePrice && salePrice < account.price) ? salePrice : null,
     });
-    toast.success('Đã thêm vào giỏ!', TS);
+    toast.success(`Đã thêm ${qty} slot vào giỏ!`, TS);
     if (goToCart) navigate('/cart');
   };
 
@@ -178,6 +180,27 @@ const AccountDetailPage = ({ onAddToCart }) => {
             </div>
 
 
+            {/* Qty stepper — chỉ hiện khi listing có nhiều slot */}
+            {quantity > 1 && !isSold && (
+              <div style={{ display:'flex', alignItems:'center', gap:12, margin:'16px 0' }}>
+                <span style={{ fontSize:13, color:'var(--text-secondary)', fontWeight:600 }}>Số lượng:</span>
+                <div style={{ display:'flex', alignItems:'center', gap:0, border:'1px solid var(--border)', borderRadius:8, overflow:'hidden' }}>
+                  <button
+                    onClick={() => setBuyQty(q => Math.max(1, q - 1))}
+                    style={{ width:36, height:36, border:'none', background:'var(--bg-card)', color:'var(--text-primary)', fontSize:18, cursor:'pointer' }}
+                  >−</button>
+                  <span style={{ minWidth:40, textAlign:'center', fontFamily:'Rajdhani', fontSize:18, fontWeight:700, color:'var(--accent)', padding:'0 4px' }}>
+                    {buyQty}
+                  </span>
+                  <button
+                    onClick={() => setBuyQty(q => Math.min(remaining, q + 1))}
+                    style={{ width:36, height:36, border:'none', background:'var(--bg-card)', color:'var(--text-primary)', fontSize:18, cursor:'pointer' }}
+                  >+</button>
+                </div>
+                <span style={{ fontSize:12, color:'var(--text-muted)' }}>còn {remaining} slot</span>
+              </div>
+            )}
+
             {/* Actions */}
             <div className="detail-actions">
               <button
@@ -215,7 +238,7 @@ const AccountDetailPage = ({ onAddToCart }) => {
                 { icon: <Clock size={16} style={{ color: 'var(--gold)' }} />, text: 'Hỗ trợ 24/7' },
                 { icon: <Eye size={16} style={{ color: 'var(--accent2)' }} />, text: `${account.views || 0} lượt xem` },
                 { icon: <Package size={16} style={{ color: isSold ? 'var(--danger)' : 'var(--success)' }} />,
-                  text: quantity > 1 ? `Gồm ${quantity} tài khoản` : 'Tài khoản đơn' },
+                  text: quantity > 1 ? `Còn ${remaining}/${quantity} slot` : 'Tài khoản đơn' },
               ].map((g, i) => (
                 <div key={i} className="guarantee-item">{g.icon}<span>{g.text}</span></div>
               ))}

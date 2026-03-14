@@ -120,7 +120,7 @@ const CartPage = ({ cart, setCart }) => {
     const item = cart.find(i => i.id === accountId);
     if (!item) return;
     const currentQty = cart.filter(i => i.id === accountId).length;
-    const maxStock = (item.soldCount || 0) >= 1 ? 0 : 1; // 1 item bán 1 lần
+    const maxStock = (item.quantity || 1) - (item.soldCount || 0); // slots còn lại
     if (currentQty >= maxStock) {
       toast.error(`Chỉ còn ${maxStock} nick khả dụng.`, TS); return;
     }
@@ -182,11 +182,22 @@ const CartPage = ({ cart, setCart }) => {
           toast.error(`Tài khoản "${cartItem?.title}" không còn tồn tại.`, TS); return;
         }
         const d = snap.data();
-        // 1 item = 1 combo bán 1 lần duy nhất, soldCount>=1 = hết hàng
-        const isSold = d.status !== 'available' || (d.soldCount || 0) >= 1;
+        const qty = cart.filter(x => x.id === id).length; // số slot user đang mua
+        const remaining = (d.quantity || 1) - (d.soldCount || 0);
+        const isSold = d.status !== 'available' || remaining <= 0;
         if (isSold) {
           toast.error(`Tài khoản "${cartItem?.title}" đã hết hàng.`, TS);
           setCart(prev => prev.filter(x => x.id !== id)); return;
+        }
+        if (qty > remaining) {
+          toast.error(`"${cartItem?.title}" chỉ còn ${remaining} slot.`, TS);
+          // Trim cart về đúng số remaining
+          setCart(prev => {
+            const kept = prev.filter(x => x.id !== id);
+            const slots = prev.filter(x => x.id === id).slice(0, remaining);
+            return [...kept, ...slots];
+          });
+          return;
         }
       }
 
@@ -261,9 +272,12 @@ const CartPage = ({ cart, setCart }) => {
           if (!snap.exists()) throw new Error(`Tài khoản "${cartItem?.title}" không tồn tại.`);
           const sd = snap.data();
           const sc = sd.soldCount || 0;
-          // 1 item = 1 combo, bán đúng 1 lần
-          if (sd.status !== 'available' || sc >= 1)
+          const qty = cart.filter(x => x.id === id).length;
+          const rem = (sd.quantity || 1) - sc;
+          if (sd.status !== 'available' || rem <= 0)
             throw new Error(`Tài khoản "${cartItem?.title}" vừa hết hàng.`);
+          if (qty > rem)
+            throw new Error(`Tài khoản "${cartItem?.title}" chỉ còn ${rem} slot.`);
           txVerifiedSoldCount[id] = sc;
         }
 
