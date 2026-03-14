@@ -1,9 +1,10 @@
 // src/hooks/useSEO.js
 import { useEffect } from 'react';
+import { useSiteSettings } from '../context/SiteSettingsContext';
 
 export const useSEO = ({ title, description, image, url }) => {
+  const { siteName } = useSiteSettings();
   useEffect(() => {
-    const siteName = 'GameStore VN';
     const fullTitle = title ? `${title} — ${siteName}` : siteName;
     document.title = fullTitle;
 
@@ -22,5 +23,5 @@ export const useSEO = ({ title, description, image, url }) => {
     if (url)   setMeta('og:url',   url,   true);
     setMeta('og:type',     'website', true);
     setMeta('og:site_name', siteName, true);
-  }, [title, description, image, url]);
+  }, [title, description, image, url, siteName]);
 };

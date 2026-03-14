@@ -31,6 +31,10 @@ export const SiteSettingsProvider = ({ children }) => {
         ...(d.minTopupAmount    && { minTopupAmount: d.minTopupAmount }),
         ...(d.maxTopupAmount    && { maxTopupAmount: d.maxTopupAmount }),
       }));
+      // Cập nhật document.title ngay khi settings load
+      if (d.siteName && document.title === 'GameStore VN - Mua Bán Tài Khoản Game') {
+        document.title = d.siteName;
+      }
     }, () => {});
     return () => unsub();
   }, []);
