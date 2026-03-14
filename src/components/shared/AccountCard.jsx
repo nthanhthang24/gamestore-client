@@ -17,7 +17,6 @@ const AccountCard = ({ account, onAddToCart, isWishlisted, onToggleWishlist, fla
 
   // 1 item = 1 combo, bán 1 lần duy nhất
   const quantity  = account.quantity  != null ? account.quantity  : 1;
-  const quantity  = account.quantity  != null ? account.quantity  : 1;
   const soldCount = account.soldCount != null ? account.soldCount : 0;
   const remaining = quantity - soldCount;
   const isSold    = account.status === 'sold' || remaining <= 0;
