@@ -51,7 +51,9 @@ service cloud.firestore {
       // Server dùng REST API nên KHÔNG bị chặn bởi rules (server dùng token của server bot)
       // → isServer() cần read user để lấy balance hiện tại trước khi credit
       // → Hạn chế: chỉ được đọc fields cần thiết (không thể hạn chế field trong rules)
-      allow read: if isOwner(userId) || isAdmin() || isServer();
+      // isAuthenticated() để getRole() trong rules functions hoạt động được
+      // (isServer/isAdmin gọi get(users/uid) → cần users/{uid} allow read)
+      allow read: if isAuthenticated();
 
       allow create: if isAuthenticated() && isOwner(userId)
         && request.resource.data.role == 'user'
