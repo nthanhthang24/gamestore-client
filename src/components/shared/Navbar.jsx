@@ -31,11 +31,6 @@ const Navbar = ({ cartCount = 0 }) => {
   const [openTickets, setOpenTickets] = useState(0);
   const [bellOpen, setBellOpen] = useState(false);
 
-  React.useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('theme', theme);
-  }, [theme]);
-  const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark');
 
   // ── NEW: System notifications ──────────────────────────────
   const [sysNotifications, setSysNotifications] = useState([]);
