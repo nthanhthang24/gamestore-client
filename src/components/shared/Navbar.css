@@ -38,6 +38,10 @@
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: 2px;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .logo-accent { color: var(--accent); }
@@ -84,6 +88,7 @@
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  min-width: 0;
 }
 
 .nav-icon-btn {
@@ -248,4 +253,19 @@
 
 @media (max-width: 480px) {
   .auth-buttons { display: none; }
+  .logo-text { max-width: 120px; font-size: 17px; letter-spacing: 1px; }
+  /* Dropdown không tràn ra ngoài màn hình trên mobile */
+  .dropdown-menu {
+    right: 0 !important;
+    left: auto !important;
+    max-width: calc(100vw - 16px);
+    width: 260px;
+  }
+  /* User button không bị cắt */
+  .user-avatar-btn { padding: 4px 8px; gap: 4px; }
+  .navbar-actions { gap: 6px; }
+}
+
+@media (max-width: 360px) {
+  .logo-text { max-width: 90px; font-size: 15px; letter-spacing: 0; }
 }
