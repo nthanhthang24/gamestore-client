@@ -64,9 +64,10 @@ const ShopPage = ({ onAddToCart, cart = [] }) => {
 
   useEffect(() => { fetchAccounts(); }, []);
 
-  // ✅ [C2] Realtime watcher: remove accounts that become 'sold' elsewhere
+  // ✅ [C2] Realtime watcher: cập nhật soldCount/status khi có người mua
   useEffect(() => {
-    const unsub = onSnapshot(
+    // Lắng nghe accounts status='sold' → xóa khỏi list
+    const unsubSold = onSnapshot(
       query(collection(db, 'accounts'), where('status', '==', 'sold')),
       (snap) => {
         const soldIds = new Set(snap.docs.map(d => d.id));
@@ -74,9 +75,27 @@ const ShopPage = ({ onAddToCart, cart = [] }) => {
           setAccounts(prev => prev.filter(a => !soldIds.has(a.id)));
         }
       },
-      () => {} // ignore errors silently
+      () => {}
     );
-    return () => unsub();
+    // Lắng nghe accounts status='available' → cập nhật soldCount realtime
+    const unsubAvail = onSnapshot(
+      query(collection(db, 'accounts'), where('status', '==', 'available')),
+      (snap) => {
+        const updates = {};
+        snap.docChanges().forEach(change => {
+          if (change.type === 'modified') {
+            updates[change.doc.id] = change.doc.data();
+          }
+        });
+        if (Object.keys(updates).length > 0) {
+          setAccounts(prev => prev.map(a =>
+            updates[a.id] ? { ...a, soldCount: updates[a.id].soldCount, quantity: updates[a.id].quantity } : a
+          ));
+        }
+      },
+      () => {}
+    );
+    return () => { unsubSold(); unsubAvail(); };
   }, []);
 
   // Read gameType from URL param

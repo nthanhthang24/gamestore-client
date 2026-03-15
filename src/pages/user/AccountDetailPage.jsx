@@ -1,7 +1,7 @@
 // src/pages/user/AccountDetailPage.jsx
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, getDoc, updateDoc, increment } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, increment } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { useAuth } from '../../context/AuthContext';
 import { ShoppingCart, Shield, Clock, Eye, Star, ChevronLeft, ChevronRight, Zap, Award, Package, Heart, Flame } from 'lucide-react';
@@ -32,18 +32,19 @@ const AccountDetailPage = ({ onAddToCart }) => {
     image: account.images?.[0],
   } : {}); // buyer-selected quantity
 
-  useEffect(() => { fetchAccount(); }, [id]);
-
-  const fetchAccount = async () => {
-    try {
-      const snap = await getDoc(doc(db, 'accounts', id));
+  useEffect(() => {
+    setLoading(true);
+    // Realtime listener → soldCount/remaining tự cập nhật khi người khác mua
+    const unsub = onSnapshot(doc(db, 'accounts', id), (snap) => {
       if (snap.exists()) {
         setAccount({ id: snap.id, ...snap.data() });
-        try { await updateDoc(doc(db, 'accounts', id), { views: increment(1) }); } catch (_) {}
       }
-    } catch (err) { console.error(err); }
-    finally { setLoading(false); }
-  };
+      setLoading(false);
+    }, (err) => { console.error(err); setLoading(false); });
+    // Tăng views 1 lần khi mount
+    updateDoc(doc(db, 'accounts', id), { views: increment(1) }).catch(() => {});
+    return () => unsub();
+  }, [id]);
 
   if (loading) return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}><div className="spinner" /></div>
