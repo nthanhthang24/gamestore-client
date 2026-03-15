@@ -49,7 +49,7 @@ const AccountCard = ({ account, onAddToCart, isWishlisted, onToggleWishlist, fla
         {account.featured && !discountPct && <span className="featured-badge"><Star size={10} /> HOT</span>}
         {isSold
           ? <div className="sold-overlay">HẾT HÀNG</div>
-          : showQty && <div className="stock-badge"><Package size={10} /> {quantity} accounts</div>
+          : showQty && <div className="stock-badge"><Package size={10} /> {remaining}/{quantity} accounts</div>
         }
       </div>
 
